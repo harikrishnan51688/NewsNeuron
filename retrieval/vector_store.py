@@ -1,12 +1,13 @@
 import psycopg2
 from core.models import NewsArticle
 from core.config import settings
-
+from embeddings import EmbeddingGenerator
 
 class VectorStore:
     def __init__(self):
         self.connection = None
         self._connect()
+        self._setup_table()
     
     def _connect(self):
         """Establish a connection to the PostgreSQL database."""
@@ -19,14 +20,14 @@ class VectorStore:
     
     def _setup_table(self):
         """Create the articles table if it doesn't exist."""
-        self._connect()
         with self.connection.cursor() as cursor:
 
             # Enable the pgvector extension
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
             # Create the articles table with necessary fields
-            cursor.execute("""
+            dimension = settings.EMBEDDING_DIMENSION
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS articles (
                     id SERIAL PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -38,7 +39,7 @@ class VectorStore:
                     published_date TIMESTAMP,
                     categories TEXT[],
                     entities TEXT[],
-                    embedding vector(1536),  
+                    embedding vector({dimension}),  
                     relevance_score FLOAT8
                 );
             """)
@@ -52,6 +53,42 @@ class VectorStore:
     def insert_article(self, article: NewsArticle) -> str:
         """Insert a NewsArticle into the vector store."""
         try:
+            embedding_generator = EmbeddingGenerator()
+            text = f"{article.title} {article.summary or article.content[:500]}"
+            embedding = embedding_generator.generate_embeddings(text)
+
+            if not embedding or len(embedding) != 1536:
+                raise ValueError(f"Embedding must be 1536-dimensional, got {len(embedding)}")
+            
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO articles 
+                    (title, content, summary, url, source, author, published_date, 
+                     categories, entities, embedding, relevance_score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id;
+                """, (
+                    article.title,
+                    article.content,
+                    article.summary,
+                    article.url,
+                    article.source,
+                    article.author,
+                    article.published_date,
+                    article.categories,
+                    article.entities,
+                    embedding,
+                    article.relevance_score
+                ))
+                article_id = cursor.fetchone()[0]
+                self.connection.commit()
+                return str(article_id)
+        
+        except Exception as e:
+            self.connection.rollback()
+            raise Exception(f"Failed to insert article: {e}")
+
+
             
             
 
