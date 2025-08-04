@@ -10,5 +10,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = "your_openrouter_api_key"
     OPENROUTER_BASE_URL: str = "https://api.openrouter.ai/v1"
 
+    EMBEDDING_MODEL: str = "openai/text-embedding-ada-002"
+    EMBEDDING_DIMENSION: int = 1536
+
 
 settings = Settings()
