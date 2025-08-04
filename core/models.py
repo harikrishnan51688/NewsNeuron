@@ -1,7 +1,13 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+from enum import Enum
 
+class QueryType(str, Enum):
+    FACTUAL = "factual"
+    ANALYTICAL = "analytical"
+    TIMELINE = "timeline"
+    RELATIONSHIP = "relationship"
 
 class NewsArticle(BaseModel):
     id: str
