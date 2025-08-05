@@ -7,29 +7,25 @@ from .knowledge_graph import KnowledgeGraph
 
 class VectorStore:
     def __init__(self):
-        self.connection = None
-        self._connect()
-        self._setup_table()
+        self.pg_conn = None
+        self.pinecone_index = None
+        self._connect_postgres()
+        self._setup_postgres_table()
+        self._init_pinecone()
     
-    def _connect(self):
-        """Establish a connection to the PostgreSQL database."""
-        if self.connection is None:
+    def _connect_postgres(self):
+        """Connect to PostgreSQL database."""
+        if self.pg_conn is None:
             try:
-                self.connection = psycopg2.connect(settings.POSTGRES_URL)
-                self.connection.autocommit = True
+                self.pg_conn = psycopg2.connect(settings.POSTGRES_URL)
+                self.pg_conn.autocommit = True
             except Exception as e:
-                raise ConnectionError(f"Failed to connect to the database: {e}")
+                raise ConnectionError(f"Failed to connect to PostgreSQL: {e}")
     
-    def _setup_table(self):
-        """Create the articles table if it doesn't exist."""
-        with self.connection.cursor() as cursor:
-
-            # Enable the pgvector extension
-            cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-
-            # Create the articles table with necessary fields
-            dimension = settings.EMBEDDING_DIMENSION
-            cursor.execute(f"""
+    def _setup_postgres_table(self):
+        """Create the articles table (excluding embedding)."""
+        with self.pg_conn.cursor() as cursor:
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS articles (
                     id SERIAL PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -41,33 +37,34 @@ class VectorStore:
                     published_date TIMESTAMP,
                     categories TEXT[],
                     entities TEXT[],
-                    embedding vector({dimension}),  
                     relevance_score FLOAT8
                 );
             """)
+        self.pg_conn.commit()
+        
+    def _init_pinecone(self):
+        """Initialize Pinecone vector index."""
+        pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 
-            # Create index for vector similarity search
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_articles_embedding ON articles USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-            """)
-        self.connection.commit()
-    
+        if settings.PINECONE_INDEX_NAME not in pc.list_indexes().names():
+            pc.create_index(
+                name=settings.PINECONE_INDEX_NAME,
+                dimension=settings.EMBEDDING_DIMENSION,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region=settings.PINECONE_ENVIRONMENT)
+            )
+        # Connect to the Pinecone index
+        self.pinecone_index = pc.Index(settings.PINECONE_INDEX_NAME)
+
     def insert_article(self, article: NewsArticle) -> str:
-        """Insert a NewsArticle into the vector store."""
         try:
-            embedding_generator = EmbeddingGenerator()
-            text = f"{article.title} {article.summary or article.content[:500]}"
-            embedding = embedding_generator.generate_embeddings(text)
-
-            if not embedding or len(embedding) != 1536:
-                raise ValueError(f"Embedding must be 1536-dimensional, got {len(embedding)}")
-            
-            with self.connection.cursor() as cursor:
+            # Insert into PostgreSQL
+            with self.pg_conn.cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO articles 
                     (title, content, summary, url, source, author, published_date, 
-                     categories, entities, embedding, relevance_score)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     categories, entities, relevance_score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id;
                 """, (
                     article.title,
@@ -79,7 +76,6 @@ class VectorStore:
                     article.published_date,
                     article.categories,
                     article.entities,
-                    embedding,
                     article.relevance_score
                 ))
                 article_id = cursor.fetchone()[0]
