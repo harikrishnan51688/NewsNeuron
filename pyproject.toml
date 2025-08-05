@@ -1,0 +1,22 @@
+[project]
+name = "newsneuron"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg2>=2.9.10",
+    "pydantic-settings>=2.10.1",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
+    "sentence-transformers>=5.0.0",
+    "pinecone>=7.3.0",
+    "ipykernel>=6.30.0",
+    "neo4j>=5.28.2",
+    "spacy>=3.8.7",
+    "pip>=25.2",
+    "en-core-web-lg",
+]
+
+[tool.uv.sources]
+en-core-web-lg = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl" }

@@ -1,7 +1,9 @@
 import psycopg2
 from core.models import NewsArticle
 from core.config import settings
-from embeddings import EmbeddingGenerator
+from .embeddings import EmbeddingGenerator
+from pinecone import Pinecone, ServerlessSpec
+from .knowledge_graph import KnowledgeGraph
 
 class VectorStore:
     def __init__(self):
@@ -81,9 +83,37 @@ class VectorStore:
                     article.relevance_score
                 ))
                 article_id = cursor.fetchone()[0]
-                self.connection.commit()
-                return str(article_id)
-        
+
+            # Generate embedding
+            embedding_generator = EmbeddingGenerator()
+            text = f"{article.title} {article.summary or article.content[:500]}"
+            embedding = embedding_generator.generate_embeddings(text)
+
+            if not embedding or len(embedding) != settings.EMBEDDING_DIMENSION:
+                raise ValueError(f"Embedding must be {settings.EMBEDDING_DIMENSION}-dimensional, got {len(embedding)}")
+
+            # Insert into Pinecone
+            metadata = {
+                "article_id": str(article_id),
+                "title": article.title,
+                "source": article.source,
+                "published_date": str(article.published_date)
+            }
+
+            self.pinecone_index.upsert([(str(article_id), embedding, metadata)])
+
+            # Add article to knowledge graph
+            kg = KnowledgeGraph()
+            try:
+                text = f"{article.title} {article.summary or article.content[:500]}"
+                kg.add_article_to_graph(text)
+            except Exception as e:
+                raise Exception(f"Error adding article to knowledge graph: {e}")
+            finally:
+                kg.close()
+
+            return str(article_id)
+
         except Exception as e:
             self.connection.rollback()
             raise Exception(f"Failed to insert article: {e}")
