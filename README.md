@@ -24,6 +24,18 @@ cd NewsNeuron
 ```bash
 uv sync
 ```
+- For postgres, you can use postgres docker image:
+```bash
+docker run --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+```
+or install postgres locally and create a database named `newsneuron`.
+
+- For Neo4j, you can use the Neo4j docker image:
+```bash
+docker run --name neo4j -e NEO4J_AUTH=neo4j/password -p 7687:7687 -p 7474:7474 -d neo4j
+```
+or install Neo4j locally and set up a database with the default credentials.
+
 3. Set Up Environment Variables
 
 Create a `.env` file in the root directory and add the following variables:
@@ -34,5 +46,8 @@ POSTGRES_URL="your_postgres_url"
 PINECONE_API_KEY="your_pinecone_api_key"
 PINECONE_ENVIRONMENT="us-east-1"
 PINECONE_INDEX_NAME="news-articles"
+NEO4J_URI="neo4j://127.0.0.1:7687"
+NEO4J_USER="neo4j"
+NEO4J_PASSWORD="password"
 ```
 
