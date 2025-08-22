@@ -12,6 +12,14 @@ class VectorStore:
         self._connect_postgres()
         self._setup_postgres_table()
         self._init_pinecone()
+        self.embedding_generator = EmbeddingGenerator()
+        self.kg = KnowledgeGraph()
+
+    def close(self):
+        """Close all database connections."""
+        if self.pg_conn:
+            self.pg_conn.close()
+        self.kg.close()
     
     def _connect_postgres(self):
         """Connect to PostgreSQL database."""
@@ -81,9 +89,8 @@ class VectorStore:
                 article_id = cursor.fetchone()[0]
 
             # Generate embedding
-            embedding_generator = EmbeddingGenerator()
             text = f"{article.title} {article.summary or article.content[:500]}"
-            embedding = embedding_generator.generate_embeddings(text)
+            embedding = self.embedding_generator.generate_embeddings(text)
 
             if not embedding or len(embedding) != settings.EMBEDDING_DIMENSION:
                 raise ValueError(f"Embedding must be {settings.EMBEDDING_DIMENSION}-dimensional, got {len(embedding)}")
@@ -99,27 +106,17 @@ class VectorStore:
             self.pinecone_index.upsert([(str(article_id), embedding, metadata)])
 
             # Add article to knowledge graph
-            kg = KnowledgeGraph()
             try:
                 text = f"{article.title} {article.summary or article.content[:500]}"
-                kg.add_article_to_graph(text)
+                self.kg.add_article_to_graph(text)
             except Exception as e:
                 raise Exception(f"Error adding article to knowledge graph: {e}")
-            finally:
-                kg.close()
 
             return str(article_id)
 
         except Exception as e:
-            self.connection.rollback()
+            self.pg_conn.rollback()
             raise Exception(f"Failed to insert article: {e}")
-
-
-            
-            
-
-
-
-        
+                            
 
         
