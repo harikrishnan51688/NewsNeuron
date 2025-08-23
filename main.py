@@ -21,3 +21,4 @@ article = NewsArticle(**article_data)
 
 store = VectorStore()
 store.insert_article(article)
+store.close()
