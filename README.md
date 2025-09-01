@@ -50,4 +50,8 @@ NEO4J_URI="neo4j://127.0.0.1:7687"
 NEO4J_USER="neo4j"
 NEO4J_PASSWORD="password"
 ```
+To run api
+```bash
+uv run uvicorn api.routes:app --reload
+```
 
