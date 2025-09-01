@@ -17,6 +17,10 @@ dependencies = [
     "en-core-web-lg",
     "fastapi[standard]>=0.116.1",
     "psycopg2-binary>=2.9.10",
+    "langgraph>=0.6.6",
+    "langsmith>=0.4.21",
+    "langchain-openai>=0.3.32",
+    "langchain>=0.3.27",
 ]
 
 [tool.uv.sources]

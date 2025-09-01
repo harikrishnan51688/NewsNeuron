@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
 
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
-    OPENROUTER_BASE_URL: str = "https://api.openrouter.ai/v1"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2" # Local model for embeddings from Sentence Transformers
     EMBEDDING_DIMENSION: int = 384
@@ -25,5 +25,9 @@ class Settings(BaseSettings):
     NEO4J_URI: str = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
+
+    AGENT_MODEL: str = "gpt-4o-mini"
+    SYSTEM_PROMPT: str = "You are a helpful assistant. Answer clearly and concisely."
+
 
 settings = Settings()

@@ -4,6 +4,11 @@ from retrieval.vector_store import VectorStore
 from core.models import NewsArticle
 from typing import List
 from datetime import datetime
+from langchain_core.messages import SystemMessage, HumanMessage
+from agents.agent import SYSTEM_PROMPT, app_graph
+from fastapi.responses import StreamingResponse, JSONResponse
+import json
+
 
 app = FastAPI()
 
@@ -35,3 +40,25 @@ def search(query: str):
 
     store.close()
     return {"results": articles}
+
+
+@app.post("/chat")
+async def chat_with_agent(messages: list[str]):
+    history = [SystemMessage(content=SYSTEM_PROMPT)]
+    for m in messages:
+        history.append(HumanMessage(content=m))
+
+    def stream():
+        for chunk in app_graph.stream({"messages": history}):
+            # Each chunk is like {"agent": {"messages": [...]}} or {"tools": {...}}
+            for node_name, state in chunk.items():
+                if "messages" in state and state["messages"]:
+                    ai_msg = state["messages"][-1]
+                    if hasattr(ai_msg, "content") and ai_msg.content:
+                        yield f"data: {json.dumps({'content': ai_msg.content})}\n\n"
+
+        # Signal completion
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
