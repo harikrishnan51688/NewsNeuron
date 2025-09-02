@@ -12,7 +12,7 @@ import json
 
 app = FastAPI()
 
-@app.get("/search")
+@app.get("/injest-data")
 def search(query: str):
     results = fetch_gnews(query)['articles']
 
