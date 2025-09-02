@@ -1,9 +1,10 @@
 from pydantic_settings import BaseSettings
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
-
+today = datetime.today()
 
 class Settings(BaseSettings):
     """Application configuration settings."""
@@ -27,7 +28,15 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
 
     AGENT_MODEL: str = "gpt-4o-mini"
-    SYSTEM_PROMPT: str = "You are a helpful assistant. Answer clearly and concisely."
+    SYSTEM_PROMPT: str = f"""
+                        You are a helpful assistant. Answer clearly and concisely.
+                        If you don't know the answer, just say you don't know. Do not make up answers.
+                        Today is {today.strftime('%B %d, %Y')}.
+                        When the user asks for relative dates like 'yesterday' or 'last month',
+                        always convert them into the correct absolute date range before calling tools.
+                        Always use tools to gather information before answering questions.
+                        """
+
 
 
 settings = Settings()
