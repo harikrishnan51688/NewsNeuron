@@ -1,0 +1,838 @@
+/* NewsNeuron - Ultra-Modern Design System */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Custom Properties for Design System */
+:root {
+  /* Synaptic Night Palette */
+  --neuron-bg-primary: #0D1117;
+  --neuron-bg-content: #161B22;
+  --neuron-border: #30363D;
+  --neuron-text-primary: #E6EDF3;
+  --neuron-text-secondary: #8B949E;
+  --neuron-glow: #00A7E1;
+  --neuron-glow-hover: #33BBF3;
+  
+  /* Accent Colors - More Variety */
+  --accent-emerald: #10B981;
+  --accent-amber: #F59E0B;
+  --accent-rose: #F43F5E;
+  --accent-violet: #8B5CF6;
+  --accent-cyan: #06B6D4;
+  --accent-orange: #EA580C;
+  
+  /* Logo Colors */
+  --logo-primary: #FFFFFF;
+  --logo-secondary: #E5E7EB;
+  --logo-glow: #C084FC;
+  
+  /* Animation Timing */
+  --neuron-transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --neuron-transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Base HTML & Body Styling */
+@layer base {
+  html {
+    @apply antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-neuron-bg-primary text-neuron-text-primary font-body;
+    @apply min-h-screen overflow-x-hidden;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Typography hierarchy */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading font-bold text-neuron-text-primary;
+    line-height: 1.2;
+  }
+  
+  h1 { @apply text-4xl; }
+  h2 { @apply text-3xl; }
+  h3 { @apply text-2xl; }
+  h4 { @apply text-xl font-medium; }
+  h5 { @apply text-lg font-medium; }
+  h6 { @apply text-base font-medium; }
+  
+  p {
+    @apply text-neuron-text-primary leading-relaxed;
+  }
+  
+  /* Links with neuron glow - no underlines */
+  a {
+    @apply text-neuron-glow hover:text-neuron-glow-hover;
+    @apply transition-colors duration-200;
+    text-decoration: none;
+  }
+  
+  a:hover {
+    text-decoration: none;
+  }
+  
+  /* Focus states for accessibility - no visible outline */
+  *:focus {
+    outline: none;
+  }
+  
+  /* Remove focus ring for buttons */
+  button:focus,
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    box-shadow: none;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-neuron-bg-content;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-neuron-border hover:bg-neuron-text-secondary/50;
+    @apply rounded-full transition-colors duration-200;
+  }
+  
+  /* Selection styling */
+  ::selection {
+    @apply bg-neuron-glow/30 text-neuron-text-primary;
+  }
+}
+
+/* Component Layer - Reusable UI Components */
+@layer components {
+  
+  /* Logo Brand Styling */
+  .logo-brand {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .logo-brand::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    background: linear-gradient(45deg, transparent, var(--logo-glow), transparent);
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+  }
+  
+  .logo-brand:hover::before {
+    opacity: 0.1;
+  }
+  
+  .logo-brand::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.1), transparent);
+    transition: left 0.6s ease;
+    z-index: 1;
+  }
+  
+  .logo-brand:hover::after {
+    left: 100%;
+  }
+  
+  .logo-text-gradient {
+    background: linear-gradient(135deg, 
+      #FFFFFF 0%, 
+      #F8FAFC 25%, 
+      #E2E8F0 50%, 
+      #CBD5E1 75%, 
+      #94A3B8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 300% 100%;
+    animation: logo-gradient-shift 4s ease-in-out infinite;
+    position: relative;
+    z-index: 2;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    text-transform: none;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'ss01' 1;
+  }
+  
+  .logo-brand:hover .logo-text-gradient {
+    background: linear-gradient(135deg, 
+      #8B5CF6 0%, 
+      #A855F7 25%, 
+      #C084FC 50%, 
+      #DDD6FE 75%, 
+      #F3F4F6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: logo-pulse 2s ease-in-out infinite;
+  }
+  
+  /* Advanced logo effects */
+  .logo-brand {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+  
+  .logo-brand::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(45deg, 
+      transparent, 
+      rgba(139, 92, 246, 0.1), 
+      transparent, 
+      rgba(168, 85, 247, 0.1), 
+      transparent);
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    z-index: -1;
+  }
+  
+  .logo-brand:hover::before {
+    opacity: 1;
+  }
+  
+  .logo-brand::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+      transparent, 
+      rgba(255, 255, 255, 0.08), 
+      transparent);
+    transition: left 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    z-index: 1;
+  }
+  
+  .logo-brand:hover::after {
+    left: 100%;
+  }
+  
+  @keyframes logo-gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    25% { background-position: 50% 30%; }
+    50% { background-position: 100% 50%; }
+    75% { background-position: 50% 70%; }
+  }
+  
+  @keyframes logo-pulse {
+    0%, 100% { 
+      background-position: 0% 50%; 
+      transform: scale(1);
+    }
+    50% { 
+      background-position: 100% 50%; 
+      transform: scale(1.02);
+    }
+  }
+  
+  /* Enhanced Typography Classes - Ultra-Modern */
+  .text-display {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-weight: 600;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'ss01' 1;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+  }
+  
+  .text-heading {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-weight: 400;  /* Lighter weight as requested */
+    font-feature-settings: 'kern' 1, 'liga' 1;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+  
+  .text-body-sans {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-weight: 400;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+    line-height: 1.6;
+    letter-spacing: 0;
+  }
+  
+  .text-elegant {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 400;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'dlig' 1;
+    letter-spacing: 0.005em;
+    line-height: 1.5;
+  }
+  
+  /* Enhanced Text Gradient for Content */
+  .text-gradient {
+    background: linear-gradient(to right, var(--neuron-text-primary), var(--neuron-glow), var(--neuron-text-primary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-size: 200% 100%;
+    animation: gradient-shift 3s ease-in-out infinite;
+  }
+  
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+  
+  /* Neuron Button - Primary CTA */
+  .btn-neuron {
+    @apply inline-flex items-center justify-center px-6 py-3;
+    @apply bg-neuron-glow hover:bg-neuron-glow-hover;
+    @apply text-neuron-bg-primary font-heading font-medium;
+    @apply rounded-lg border border-transparent;
+    @apply transition-all duration-200;
+    @apply hover:scale-105 hover:shadow-glow;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
+  }
+  
+  .btn-neuron:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  /* Secondary Button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3;
+    @apply bg-transparent hover:bg-neuron-bg-content;
+    @apply text-neuron-text-primary border border-neuron-border;
+    @apply rounded-lg font-heading font-medium;
+    @apply transition-all duration-200;
+  }
+  
+  .btn-secondary:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  /* Icon Button */
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-10 h-10;
+    @apply bg-transparent hover:bg-neuron-bg-content;
+    @apply text-neuron-text-secondary hover:text-neuron-text-primary;
+    @apply rounded-lg transition-all duration-200;
+  }
+  
+  .btn-icon:focus {
+    outline: none;
+    box-shadow: none;
+  }
+  
+  /* Ghost Button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-6 py-3;
+    @apply bg-transparent hover:bg-neuron-bg-content;
+    @apply text-neuron-text-primary border border-neuron-border;
+    @apply rounded-lg font-heading font-medium;
+    @apply transition-all duration-200;
+    @apply hover:border-neuron-glow/50;
+  }
+  
+  /* Icon Button */
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-10 h-10;
+    @apply bg-transparent hover:bg-neuron-bg-content;
+    @apply text-neuron-text-secondary hover:text-neuron-text-primary;
+    @apply rounded-lg transition-all duration-200;
+    @apply hover:scale-105;
+  }
+  
+  /* Neuron Card - Core content container */
+  .card-neuron {
+    @apply bg-neuron-bg-content border border-neuron-border;
+    @apply rounded-lg p-6 transition-all duration-300;
+    @apply hover:scale-[1.02] hover:border-neuron-glow/50;
+    @apply hover:shadow-neuron-lg;
+  }
+  
+  /* Glow Card - Special emphasis */
+  .card-glow {
+    @apply card-neuron;
+    @apply border-neuron-glow/50 shadow-glow;
+    @apply hover:shadow-glow-lg;
+  }
+  
+  /* Input Fields */
+  .input-neuron {
+    @apply w-full px-4 py-3 bg-neuron-bg-content;
+    @apply border border-neuron-border rounded-lg;
+    @apply text-neuron-text-primary placeholder-neuron-text-secondary;
+    @apply transition-all duration-200;
+    @apply focus:border-neuron-glow focus:ring-1 focus:ring-neuron-glow/30;
+    @apply hover:border-neuron-border;
+  }
+  
+  /* Navigation Link */
+  .nav-link {
+    @apply flex items-center px-4 py-3 text-neuron-text-secondary;
+    @apply hover:text-neuron-text-primary hover:bg-neuron-bg-content;
+    @apply rounded-lg transition-all duration-200;
+  }
+  
+  .nav-link.active {
+    @apply text-neuron-glow bg-neuron-bg-content;
+    @apply border-r-2 border-neuron-glow;
+  }
+  
+  /* Loading States */
+  .loading-pulse {
+    @apply animate-pulse bg-neuron-border rounded;
+  }
+  
+  .loading-glow {
+    @apply animate-synapse-pulse;
+  }
+  
+  /* Modal/Dialog */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm;
+    @apply flex items-center justify-center p-4;
+    @apply z-50;
+  }
+  
+  .modal-content {
+    @apply bg-neuron-bg-content border border-neuron-border;
+    @apply rounded-xl p-6 w-full max-w-lg;
+    @apply shadow-neuron-lg;
+    @apply animate-scale-in;
+  }
+  
+  /* Toast Notifications */
+  .toast {
+    @apply flex items-center p-4 rounded-lg shadow-neuron-lg;
+    @apply border border-neuron-border;
+    @apply animate-slide-up;
+  }
+  
+  .toast.success {
+    @apply bg-green-900/80 border-green-600;
+  }
+  
+  .toast.error {
+    @apply bg-red-900/80 border-red-600;
+  }
+  
+  .toast.warning {
+    @apply bg-yellow-900/80 border-yellow-600;
+  }
+  
+  .toast.info {
+    @apply bg-neuron-bg-content border-neuron-glow;
+  }
+  
+  /* Skeleton Loading */
+  .skeleton {
+    @apply animate-pulse bg-neuron-border rounded;
+  }
+  
+  .skeleton-text {
+    @apply skeleton h-4 w-full mb-2;
+  }
+  
+  .skeleton-title {
+    @apply skeleton h-6 w-3/4 mb-4;
+  }
+  
+  /* Synapse Connection Lines (for timeline) */
+  .synapse-line {
+    @apply stroke-neuron-glow stroke-2;
+    filter: drop-shadow(0 0 6px rgba(0, 167, 225, 0.6));
+    animation: synapse-flow 2s ease-in-out infinite;
+  }
+  
+  @keyframes synapse-flow {
+    0%, 100% { stroke-dashoffset: 0; }
+    50% { stroke-dashoffset: 10; }
+  }
+  
+  /* Enhanced Focus Ring for Accessibility */
+  .focus-ring {
+    @apply focus:ring-2 focus:ring-neuron-glow/60 focus:ring-offset-2 focus:ring-offset-neuron-bg-primary;
+  }
+  
+  /* Utility Classes */
+  .text-gradient {
+    background: linear-gradient(135deg, var(--neuron-glow), var(--neuron-glow-hover));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .border-gradient {
+    background: linear-gradient(135deg, var(--neuron-glow), var(--neuron-glow-hover));
+    padding: 1px;
+    border-radius: 8px;
+  }
+  
+  .border-gradient > * {
+    @apply bg-neuron-bg-content rounded-lg;
+  }
+}
+
+/* Utility Layer - Custom utilities */
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Glass morphism effect */
+  .glass {
+    backdrop-filter: blur(12px);
+    background: rgba(22, 27, 34, 0.8);
+    border: 1px solid rgba(48, 54, 61, 0.5);
+  }
+  
+  /* Neuron glow effect */
+  .neuron-glow {
+    box-shadow: 0 0 20px rgba(0, 167, 225, 0.3);
+  }
+  
+  /* Content width constraint */
+  .content-width {
+    @apply max-w-content mx-auto;
+  }
+}
+
+/* Animation Overrides */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Base styles */
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 selection:bg-blue-200 selection:text-blue-900;
+  }
+
+  /* Scrollbar styles */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+
+  /* Dark mode scrollbar */
+  .dark ::-webkit-scrollbar-track {
+    @apply bg-gray-800;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+/* Component styles */
+@layer components {
+  /* Button components */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500;
+  }
+
+  .btn-outline {
+    @apply btn border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-blue-500;
+  }
+
+  .btn-ghost {
+    @apply btn border-transparent bg-transparent text-gray-700 hover:bg-gray-100 focus:ring-blue-500;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* Card components */
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden;
+  }
+
+  .card-header {
+    @apply px-6 py-4 border-b border-gray-200 bg-gray-50;
+  }
+
+  .card-body {
+    @apply px-6 py-4;
+  }
+
+  .card-footer {
+    @apply px-6 py-4 border-t border-gray-200 bg-gray-50;
+  }
+
+  /* Input components */
+  .input {
+    @apply block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200;
+  }
+
+  .input-error {
+    @apply border-red-300 focus:ring-red-500 focus:border-red-500;
+  }
+  
+  .input-success {
+    @apply border-green-300 focus:ring-green-500 focus:border-green-500;
+  }  /* Badge components */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply badge bg-blue-100 text-blue-800;
+  }
+  
+  .badge-secondary {
+    @apply badge bg-gray-100 text-gray-800;
+  }  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+  
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+  
+  .badge-error {
+    @apply badge bg-red-100 text-red-800;
+  }  /* Loading components */
+  .spinner {
+    @apply animate-spin rounded-full border-2 border-gray-300 border-t-blue-600;
+  }
+
+  .spinner-sm {
+    @apply w-4 h-4;
+  }
+
+  .spinner-md {
+    @apply w-6 h-6;
+  }
+
+  .spinner-lg {
+    @apply w-8 h-8;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded;
+  }
+
+  .skeleton-text {
+    @apply skeleton h-4 mb-2;
+  }
+
+  .skeleton-title {
+    @apply skeleton h-6 mb-4;
+  }
+
+  .skeleton-avatar {
+    @apply skeleton w-10 h-10 rounded-full;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    @apply absolute z-50 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg opacity-0 pointer-events-none transition-opacity duration-200;
+  }
+
+  .tooltip.show {
+    @apply opacity-100 pointer-events-auto;
+  }
+
+  /* Chat bubble */
+  .chat-bubble {
+    @apply max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm;
+  }
+
+    .message-user {
+    @apply chat-bubble bg-blue-600 text-white ml-auto;
+  }
+
+  .chat-bubble-assistant {
+    @apply chat-bubble bg-gray-200 text-gray-900 mr-auto;
+  }
+
+  /* Timeline */
+  .timeline-item {
+    @apply relative pl-6 pb-6;
+  }
+
+  .timeline-item::before {
+    @apply absolute left-0 top-2 w-2 h-2 bg-blue-600 rounded-full;
+  }  .timeline-item::after {
+    @apply absolute left-0.5 top-4 w-0.5 bg-gray-300;
+    content: "";
+    height: calc(100% - 0.5rem);
+  }
+
+  .timeline-item:last-child::after {
+    @apply hidden;
+  }
+
+  /* Flashcard */
+  .flashcard {
+    @apply card cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg;
+  }
+
+  .flashcard-front {
+    @apply absolute inset-0;
+    backface-visibility: hidden;
+  }
+
+  .flashcard-back {
+    @apply absolute inset-0 transform;
+    backface-visibility: hidden;
+    transform: rotateY(180deg);
+  }
+
+  .flashcard.flipped .flashcard-front {
+    transform: rotateY(180deg);
+  }
+
+  .flashcard.flipped .flashcard-back {
+    transform: rotateY(0deg);
+  }
+}
+
+/* Utility styles */
+@layer utilities {
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+
+    .gradient-text {
+    @apply bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent;
+  }
+
+  .glass {
+    @apply bg-white/10 backdrop-blur-md border border-white/20;
+  }
+
+  .glass-dark {
+    @apply bg-black/10 backdrop-blur-md border border-black/20;
+  }
+
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+  /* Responsive text */
+  .text-responsive {
+    @apply text-sm sm:text-base md:text-lg lg:text-xl;
+  }
+
+  .text-responsive-sm {
+    @apply text-xs sm:text-sm md:text-base;
+  }
+
+  .text-responsive-lg {
+    @apply text-lg sm:text-xl md:text-2xl lg:text-3xl;
+  }
+
+  /* Grid utilities */
+  .grid-auto-fit {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
+
+  .grid-auto-fill {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+}
+
+/* Dark mode styles */
+@media (prefers-color-scheme: dark) {
+  .dark {
+    @apply bg-gray-900 text-gray-100;
+  }
+
+  .dark .card {
+    @apply bg-gray-800 border-gray-700;
+  }
+
+  .dark .card-header,
+  .dark .card-footer {
+    @apply bg-gray-800 border-gray-700;
+  }
+
+  .dark .input {
+    @apply bg-gray-800 border-gray-600 text-gray-100 placeholder-gray-400;
+  }
+
+  .dark .btn-outline {
+    @apply border-gray-600 bg-gray-800 text-gray-100 hover:bg-gray-700;
+  }
+
+  .dark .btn-ghost {
+    @apply text-gray-100 hover:bg-gray-800;
+  }
+}
