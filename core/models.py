@@ -34,3 +34,32 @@ class RetrievalResult(BaseModel):
     total_count: int
     query_analysis: Dict[str, Any]
     processing_time: float
+    
+    
+    
+
+# Add these flash card models to your existing models.py
+class Flashcard(BaseModel):
+    id: str
+    category: str
+    question: str
+    answer: str
+    difficulty: str = "medium"  # easy, medium, hard
+    tags: List[str] = []
+    status: str = "new"  # new, learning, known
+    created_at: datetime = datetime.now()
+    last_reviewed: Optional[datetime] = None
+    review_count: int = 0
+
+class FlashcardRequest(BaseModel):
+    topic: str
+    difficulty: Optional[str] = "medium"
+    count: int = 5
+    source_type: str = "knowledge_base"  # knowledge_base, recent_news, entities
+
+class StudySession(BaseModel):
+    session_id: str
+    cards_studied: int
+    correct_answers: int
+    duration_minutes: int
+    topics_covered: List[str]
