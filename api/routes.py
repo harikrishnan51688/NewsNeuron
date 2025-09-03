@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from fastapi.middleware.cors import CORSMiddleware
 
 from agents.agent import agent_graph
 from retrieval.fetch_news import fetch_gnews
@@ -26,6 +27,14 @@ app = FastAPI(
     title="AI News Agent API",
     description="AI agent for news retrieval and knowledge graph queries",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ============================================================================
