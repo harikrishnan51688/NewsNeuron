@@ -88,6 +88,11 @@ export const timelineAPI = {
     api.get("/timeline/events/trending", { params }),
 };
 
+export const headlinesAPI = {
+  getTopHeadlines: (params) => api.get("/headlines/top", { params }),
+  getAvailableCategories: () => api.get("/headlines/categories"),
+};
+
 export const healthAPI = {
   checkHealth: () => api.get("/health"),
   getStatus: () => api.get("/"),
