@@ -427,53 +427,45 @@ async def generate_timeline(request: TimelineRequest):
         events = []
         entity_mentions = {}
         
-        for article in articles:
-            # For now, all articles are treated as NEWS events
-            event_type = EventType.NEWS
-                
-            event = TimelineEvent(
-                id=f"event_{article[0]}_{len(events)}",
-                title=article[1],
-                description=article[3] or article[2][:200] + "...",
-                date=article[7],
-                event_type=event_type,
-                sentiment=SentimentType.NEUTRAL,  # Remove sentiment analysis
-                relevance_score=_calculate_relevance(article, request.entity_name),
-                entities=article[9] or [],
-                source_article_id=str(article[0]),
-                source_url=article[4],
-                metadata={
-                    "source": article[5],
-                    "author": article[6],
-                    "categories": article[8] or [],
-                    "source_credibility": _calculate_source_credibility(article[5])
-                }
-            )
-            events.append(event)
+        if articles:
+            # Enhanced story progression with clustering
+            events = _create_story_timeline(articles, request.entity_name)
             
-            # Track entity mentions
-            for entity in (article[9] or []):
-                if entity.lower() != request.entity_name.lower():
-                    if entity not in entity_mentions:
-                        entity_mentions[entity] = {
-                            "count": 0,
-                            "relevance_sum": 0,
-                            "first_seen": article[7],
-                            "last_seen": article[7]
-                        }
-                    entity_mentions[entity]["count"] += 1
-                    entity_mentions[entity]["relevance_sum"] += event.relevance_score
-                    entity_mentions[entity]["last_seen"] = max(
-                        entity_mentions[entity]["last_seen"], article[7]
-                    )
+            # Track entity mentions from all events
+            for event in events:
+                article_entities = event.entities or []
+                for entity in article_entities:
+                    if entity.lower() != request.entity_name.lower():
+                        if entity not in entity_mentions:
+                            entity_mentions[entity] = {
+                                "count": 0,
+                                "relevance_sum": 0,
+                                "first_seen": event.date,
+                                "last_seen": event.date
+                            }
+                        entity_mentions[entity]["count"] += 1
+                        entity_mentions[entity]["relevance_sum"] += event.relevance_score
+                        entity_mentions[entity]["last_seen"] = max(
+                            entity_mentions[entity]["last_seen"], event.date
+                        )
         
-        # Calculate statistics
+        # Calculate enhanced statistics with clustering info
+        story_clusters = {}
+        for event in events:
+            cluster_id = event.metadata.get("story_cluster", -1)
+            if cluster_id not in story_clusters:
+                story_clusters[cluster_id] = 0
+            story_clusters[cluster_id] += 1
+        
         statistics = {
             "total_events": len(events),
             "articles_analyzed": len(articles),
             "time_span_days": (end_date - start_date).days,
             "average_relevance": sum(e.relevance_score for e in events) / len(events) if events else 0,
-            "fresh_data_fetched": existing_count < 3  # Indicate if we fetched fresh data
+            "fresh_data_fetched": existing_count < 3,  # Indicate if we fetched fresh data
+            "story_threads": int(len([c for c in story_clusters.keys() if c >= 0])),
+            "standalone_articles": int(story_clusters.get(-1, 0)),
+            "clustering_summary": {str(int(k)): int(v) for k, v in story_clusters.items()}
         }
         
         # Get related entities
@@ -1107,6 +1099,277 @@ def _calculate_relevance(article, entity_name: str) -> float:
         score = max(score, article[10])
     
     return min(score, 1.0)  # Cap at 1.0
+
+
+def _ensure_json_serializable(obj):
+    """
+    Ensure all values in an object are JSON serializable by converting numpy types to native Python types.
+    """
+    import numpy as np
+    
+    if isinstance(obj, dict):
+        return {k: _ensure_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_ensure_json_serializable(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
+
+
+def _create_story_timeline(articles, entity_name: str) -> List[TimelineEvent]:
+    """
+    Create a coherent story timeline by clustering related articles and ordering them intelligently.
+    Uses TF-IDF vectorization and clustering to group related storylines.
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.cluster import DBSCAN
+    from sklearn.metrics.pairwise import cosine_similarity
+    import numpy as np
+    
+    if not articles:
+        return []
+    
+    # Prepare text data for analysis
+    article_texts = []
+    article_data = []
+    
+    for article in articles:
+        # Combine title, summary, and content for text analysis
+        title = article[1] or ""
+        summary = article[3] or ""
+        content = article[2] or ""
+        
+        # Create combined text (prioritize title and summary)
+        combined_text = f"{title} {summary} {content[:500]}"  # Limit content to avoid overwhelming
+        article_texts.append(combined_text)
+        article_data.append(article)
+    
+    # Skip clustering if we have too few articles
+    if len(articles) < 2:
+        # Single article - create simple timeline
+        article = articles[0]
+        event = TimelineEvent(
+            id=f"event_{article[0]}_0",
+            title=article[1],
+            description=article[3] or article[2][:200] + "...",
+            date=article[7],
+            event_type=EventType.NEWS,
+            sentiment=SentimentType.NEUTRAL,
+            relevance_score=_calculate_relevance(article, entity_name),
+            entities=article[9] or [],
+            source_article_id=str(article[0]),
+            source_url=article[4],
+            metadata={
+                "source": article[5],
+                "author": article[6],
+                "categories": article[8] or [],
+                "source_credibility": _calculate_source_credibility(article[5]),
+                "story_cluster": 0,
+                "story_relevance": 1.0
+            }
+        )
+        return [event]
+    
+    try:
+        # Create TF-IDF vectors with enhanced preprocessing
+        vectorizer = TfidfVectorizer(
+            max_features=2000,  # Increased for better differentiation
+            stop_words='english',
+            ngram_range=(1, 3),  # Include trigrams for better context
+            min_df=1,
+            max_df=0.8,
+            sublinear_tf=True,  # Apply log scaling
+            norm='l2'  # L2 normalization
+        )
+        
+        try:
+            tfidf_matrix = vectorizer.fit_transform(article_texts)
+            logger.info(f"Created TF-IDF matrix with shape: {tfidf_matrix.shape}")
+            
+            # Check for empty matrix or insufficient features
+            if tfidf_matrix.shape[0] == 0 or tfidf_matrix.shape[1] == 0:
+                logger.warning("Empty TF-IDF matrix, falling back to simple timeline")
+                raise ValueError("Empty TF-IDF matrix")
+                
+            if tfidf_matrix.shape[1] < 2:
+                logger.warning("Insufficient features for clustering, falling back to simple timeline")
+                raise ValueError("Insufficient features for clustering")
+                
+        except Exception as vectorize_error:
+            logger.error(f"TF-IDF vectorization failed: {vectorize_error}")
+            raise vectorize_error
+        
+        # Use cosine similarity for clustering
+        similarity_matrix = cosine_similarity(tfidf_matrix)
+        
+        # Convert similarity to distance matrix with proper bounds checking
+        # Ensure values are in valid range [0, 1] and distance is non-negative
+        similarity_matrix = np.clip(similarity_matrix, 0.0, 1.0)
+        distance_matrix = 1.0 - similarity_matrix
+        
+        # Ensure distance matrix is non-negative and symmetric
+        distance_matrix = np.maximum(distance_matrix, 0.0)
+        distance_matrix = (distance_matrix + distance_matrix.T) / 2
+        
+        # Validate distance matrix
+        if np.any(distance_matrix < 0):
+            logger.error("Distance matrix contains negative values after correction")
+            raise ValueError("Invalid distance matrix")
+        
+        logger.info(f"Distance matrix stats: min={np.min(distance_matrix):.4f}, max={np.max(distance_matrix):.4f}")
+        
+        # Perform clustering using DBSCAN
+        # Use adaptive eps based on data size and more lenient min_samples
+        data_size = len(articles)
+        if data_size <= 5:
+            eps = 0.4  # More lenient for small datasets
+            min_samples = 2
+        elif data_size <= 10:
+            eps = 0.35
+            min_samples = 2
+        else:
+            eps = 0.3  # Tighter clusters for larger datasets
+            min_samples = 3
+        
+        clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='precomputed')
+        try:
+            cluster_labels = clustering.fit_predict(distance_matrix)
+            logger.info(f"DBSCAN clustering completed. Found {len(set(cluster_labels))} clusters (including noise)")
+        except Exception as dbscan_error:
+            logger.error(f"DBSCAN failed: {dbscan_error}")
+            # Fallback to simple similarity-based grouping
+            threshold = 0.7  # High similarity threshold
+            cluster_labels = np.full(len(articles), -1)  # Start with all as noise
+            
+            # Simple grouping based on high similarity
+            for i in range(len(articles)):
+                if cluster_labels[i] == -1:  # Not yet assigned
+                    cluster_id = max(cluster_labels) + 1 if len(set(cluster_labels)) > 1 else 0
+                    cluster_labels[i] = cluster_id
+                    
+                    # Find similar articles
+                    for j in range(i + 1, len(articles)):
+                        if cluster_labels[j] == -1 and similarity_matrix[i][j] >= threshold:
+                            cluster_labels[j] = cluster_id
+            
+            logger.info(f"Fallback clustering completed. Found {len(set(cluster_labels))} groups")
+        
+        # Group articles by cluster
+        clustered_articles = {}
+        for i, (article, label) in enumerate(zip(article_data, cluster_labels)):
+            if label not in clustered_articles:
+                clustered_articles[label] = []
+            clustered_articles[label].append((article, i, similarity_matrix[i]))
+        
+        # Create timeline events from clustered articles
+        events = []
+        
+        # Process each cluster to create story threads
+        for cluster_id, cluster_articles in clustered_articles.items():
+            # Sort articles in cluster by date
+            cluster_articles.sort(key=lambda x: x[0][7])  # Sort by published_date
+            
+            # Calculate cluster relevance (average similarity to entity-related content)
+            entity_relevance_scores = []
+            for article, idx, similarity_scores in cluster_articles:
+                relevance = _calculate_relevance(article, entity_name)
+                entity_relevance_scores.append(relevance)
+            
+            avg_cluster_relevance = np.mean(entity_relevance_scores) if entity_relevance_scores else 0.0
+            
+            # Only include clusters with decent relevance to the entity
+            # More lenient threshold for noise cluster (-1) which represents individual stories
+            relevance_threshold = 0.2 if cluster_id == -1 else 0.3
+            if avg_cluster_relevance < relevance_threshold:
+                continue
+            
+            # Create events for this story cluster
+            for i, (article, idx, similarity_scores) in enumerate(cluster_articles):
+                # Calculate story relevance (how well this article fits the story thread)
+                story_relevance = avg_cluster_relevance
+                if i > 0:
+                    # For follow-up articles, consider similarity to previous articles in cluster
+                    prev_similarities = [
+                        similarity_matrix[idx][prev_idx] 
+                        for _, prev_idx, _ in cluster_articles[:i]
+                    ]
+                    prev_mean = float(np.mean(prev_similarities))
+                    story_relevance = max(float(story_relevance), prev_mean)
+                
+                event = TimelineEvent(
+                    id=f"event_{article[0]}_{len(events)}",
+                    title=article[1],
+                    description=article[3] or article[2][:200] + "...",
+                    date=article[7],
+                    event_type=EventType.NEWS,
+                    sentiment=SentimentType.NEUTRAL,
+                    relevance_score=_calculate_relevance(article, entity_name),
+                    entities=article[9] or [],
+                    source_article_id=str(article[0]),
+                    source_url=article[4],
+                    metadata={
+                        "source": article[5],
+                        "author": article[6],
+                        "categories": article[8] or [],
+                        "source_credibility": _calculate_source_credibility(article[5]),
+                        "story_cluster": int(cluster_id) if cluster_id is not None else -1,
+                        "story_relevance": float(story_relevance),
+                        "cluster_position": int(i),
+                        "cluster_size": int(len(cluster_articles))
+                    }
+                )
+                events.append(event)
+        
+        # Sort final events by date to create chronological timeline
+        events.sort(key=lambda x: x.date)
+        
+        # Limit to most relevant events if we have too many
+        if len(events) > 20:
+            # Sort by story relevance and keep top 20
+            events.sort(key=lambda x: x.metadata.get("story_relevance", 0), reverse=True)
+            events = events[:20]
+            # Re-sort by date
+            events.sort(key=lambda x: x.date)
+        
+        return events
+        
+    except Exception as e:
+        logger.error(f"Error in story clustering: {e}")
+        logger.info(f"Falling back to simple timeline for {len(articles)} articles")
+        # Fallback to simple timeline if clustering fails
+        events = []
+        for article in articles:
+            event = TimelineEvent(
+                id=f"event_{article[0]}_{len(events)}",
+                title=article[1],
+                description=article[3] or article[2][:200] + "...",
+                date=article[7],
+                event_type=EventType.NEWS,
+                sentiment=SentimentType.NEUTRAL,
+                relevance_score=_calculate_relevance(article, entity_name),
+                entities=article[9] or [],
+                source_article_id=str(article[0]),
+                source_url=article[4],
+                metadata={
+                    "source": article[5],
+                    "author": article[6],
+                    "categories": article[8] or [],
+                    "source_credibility": _calculate_source_credibility(article[5]),
+                    "story_cluster": -1,
+                    "story_relevance": float(_calculate_relevance(article, entity_name))
+                }
+            )
+            events.append(event)
+        
+        # Sort by date and limit
+        events.sort(key=lambda x: x.date)
+        return events[:15]
+
 
 if __name__ == "__main__":
     import uvicorn

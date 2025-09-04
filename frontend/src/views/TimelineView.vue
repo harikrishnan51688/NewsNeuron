@@ -42,12 +42,11 @@
               Entity or Topic
             </label>
             <div class="relative">
-              <SearchIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-secondary" />
               <input
                 v-model="searchQuery"
                 type="text"
                 placeholder="Enter entity name (e.g., OpenAI, Tesla, Climate Change)"
-                class="input-neuron pl-12"
+                class="input-neuron"
                 @keydown.enter="generateTimeline"
               />
               <button
@@ -70,7 +69,6 @@
               <option value="30d">Last 30 days</option>
               <option value="90d">Last 3 months</option>
               <option value="1y">Last year</option>
-              <option value="custom">Custom range</option>
             </select>
           </div>
 
@@ -83,45 +81,34 @@
             >
               <SparklesIcon v-if="!isLoading" class="w-4 h-4 mr-2" />
               <SynapseLoader v-else class="w-4 h-4 mr-2" />
-              {{ isLoading ? 'Analyzing...' : 'Generate Timeline' }}
+              {{ isLoading ? 'Generating...' : 'Generate Timeline' }}
             </button>
           </div>
         </div>
 
-        <!-- Advanced Filters -->
-        <div v-if="showAdvancedFilters" class="mt-6 pt-6 border-t border-dark-border">
-          <div class="grid grid-cols-1 md:grid-cols-1 gap-6">
-            <div class="text-center">
-              <p class="text-text-secondary">
-                Advanced filtering options have been simplified for better compatibility with our news sources.
-                Use the time range selector above to filter by date.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-4">
-          <button
-            @click="showAdvancedFilters = !showAdvancedFilters"
-            class="text-neuron-glow hover:text-neuron-glow/80 text-sm font-medium transition-colors"
-          >
-            {{ showAdvancedFilters ? 'Hide' : 'Show' }} Advanced Filters
-            <ChevronDownIcon 
-              :class="['w-4 h-4 ml-1 inline transition-transform', { 'rotate-180': showAdvancedFilters }]" 
-            />
-          </button>
-        </div>
+        <!-- Advanced Filters (Removed for cleaner interface) -->
       </div>
 
       <!-- Timeline Visualization -->
-      <div class="grid grid-cols-1 xl:grid-cols-4 gap-8">
+      <div class="max-w-full">
         <!-- Main Timeline -->
-        <div class="xl:col-span-3">
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
+        <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
             <div class="flex items-center justify-between mb-6">
-              <h2 class="text-xl font-semibold text-text-primary">
-                {{ timelineTitle }}
-              </h2>
+              <div>
+                <h2 class="text-xl font-semibold text-text-primary">
+                  {{ timelineTitle }}
+                </h2>
+                <div v-if="hasTimelineData && timelineStatistics?.story_threads" class="flex items-center space-x-4 mt-2 text-sm text-text-secondary">
+                  <span class="flex items-center">
+                    <span class="w-2 h-2 bg-purple-500 rounded-full mr-2"></span>
+                    {{ timelineStatistics.story_threads }} Story Thread{{ timelineStatistics.story_threads !== 1 ? 's' : '' }}
+                  </span>
+                  <span v-if="timelineStatistics.standalone_articles > 0" class="flex items-center">
+                    <span class="w-2 h-2 bg-gray-500 rounded-full mr-2"></span>
+                    {{ timelineStatistics.standalone_articles }} Standalone Article{{ timelineStatistics.standalone_articles !== 1 ? 's' : '' }}
+                  </span>
+                </div>
+              </div>
               <div v-if="hasTimelineData" class="flex items-center space-x-4">
                 <!-- View Toggle -->
                 <div class="flex bg-dark-background border border-dark-border rounded-lg p-1">
@@ -188,81 +175,149 @@
                 </div>
               </div>
 
-              <div
+                            <div
                 v-else
                 ref="timelineContainer"
-                class="timeline-visualization min-h-96 overflow-hidden rounded-xl border border-dark-border p-6"
+                class="overflow-x-auto"
                 :style="{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }"
               >
+                <!-- Story Progression Legend -->
+                <div v-if="hasTimelineData && timelineStatistics?.story_threads > 0" class="mb-6 p-4 bg-dark-background/30 rounded-lg">
+                  <h4 class="text-sm font-medium text-text-primary mb-2">Story Progression Guide</h4>
+                  <div class="flex flex-wrap gap-4 text-xs text-text-secondary">
+                    <div class="flex items-center">
+                      <div class="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                      <span>Connected story threads</span>
+                    </div>
+                    <div class="flex items-center">
+                      <div class="w-3 h-3 bg-gray-500 rounded-full mr-2"></div>
+                      <span>Individual reports</span>
+                    </div>
+                    <div class="flex items-center">
+                      <div class="w-0.5 h-4 bg-purple-500/60 mr-2"></div>
+                      <span>Story continuation</span>
+                    </div>
+                  </div>
+                </div>
+                
                 <!-- Timeline Events Display -->
                 <div class="space-y-6">
+                  <!-- Story Cards Display -->
                   <div
-                    v-for="(event, index) in timelineData"
-                    :key="event.id"
-                    class="timeline-item relative pl-8 pb-6"
-                    :class="{ 'timeline-item-last': index === timelineData.length - 1 }"
+                    v-for="story in storyCards"
+                    :key="story.id"
+                    class="story-card bg-dark-background/50 rounded-lg border border-dark-border hover:border-neuron-glow/30 transition-all duration-200"
                   >
-                    <!-- Timeline Dot -->
-                    <div class="absolute left-0 top-2 w-3 h-3 rounded-full border-2 border-white"
-                         :class="{
-                           'bg-emerald-500': getCredibilityTier(event) === 'tier1',
-                           'bg-blue-500': getCredibilityTier(event) === 'tier2', 
-                           'bg-yellow-500': getCredibilityTier(event) === 'tier3',
-                           'bg-gray-500': getCredibilityTier(event) === 'unrated'
-                         }">
-                    </div>
-                    
-                    <!-- Timeline Line -->
-                    <div v-if="index < timelineData.length - 1" 
-                         class="absolute left-1.5 top-5 w-0.5 h-full bg-dark-border">
-                    </div>
-                    
-                    <!-- Event Content -->
-                    <div class="bg-dark-background/50 rounded-lg p-4 hover:bg-dark-background transition-colors">
-                      <div class="flex items-start justify-between mb-2">
-                        <h3 class="text-text-primary font-semibold text-sm leading-tight">
-                          {{ event.title }}
-                        </h3>
-                        <span class="text-text-muted text-xs ml-4 flex-shrink-0">
-                          {{ formatDate(event.date) }}
-                        </span>
-                      </div>
-                      
-                      <p class="text-text-secondary text-sm mb-3 leading-relaxed">
-                        {{ event.description }}
-                      </p>
-                      
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-3">
-                          <!-- Source Credibility Badge -->
-                          <span class="inline-flex items-center px-2 py-1 rounded-full text-xs"
-                                :class="{
-                                  'bg-emerald-500/20 text-emerald-400': getCredibilityTier(event) === 'tier1',
-                                  'bg-blue-500/20 text-blue-400': getCredibilityTier(event) === 'tier2',
-                                  'bg-yellow-500/20 text-yellow-400': getCredibilityTier(event) === 'tier3',
-                                  'bg-gray-500/20 text-gray-400': getCredibilityTier(event) === 'unrated'
-                                }">
-                            {{ getCredibilityLabel(event) }}
-                          </span>
-                          
-                          <!-- Relevance Score -->
-                          <span class="text-text-muted text-xs">
-                            Relevance: {{ Math.round((event.relevance_score || event.relevance || 0) * 100) }}%
-                          </span>
-                          
-                          <!-- Source Name -->
-                          <span v-if="event.metadata?.source" class="text-text-muted text-xs font-medium">
-                            {{ event.metadata.source }}
+                    <!-- Story Card Header -->
+                    <div 
+                      @click="toggleStoryCard(story.id)"
+                      class="p-4 cursor-pointer flex items-center justify-between"
+                    >
+                      <div class="flex-1">
+                        <div class="flex items-center space-x-3 mb-2">
+                          <div class="w-3 h-3 rounded-full border-2 border-white"
+                               :style="{ backgroundColor: story.color }">
+                          </div>
+                          <h3 class="text-text-primary font-semibold text-lg">
+                            {{ story.title }}
+                          </h3>
+                          <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400">
+                            {{ story.articleCount }} {{ story.articleCount === 1 ? 'article' : 'articles' }}
                           </span>
                         </div>
                         
-                        <a v-if="event.source_url || event.sourceUrl" 
-                           :href="event.source_url || event.sourceUrl" 
-                           target="_blank"
-                           class="text-neuron-glow hover:text-neuron-glow/80 text-xs"
+                        <p class="text-text-secondary text-sm mb-3">
+                          {{ story.summary }}
+                        </p>
+                        
+                        <div class="flex items-center space-x-4 text-xs text-text-muted">
+                          <span>{{ formatDate(story.earliestDate) }} → {{ formatDate(story.latestDate) }}</span>
+                          <span>Avg. Relevance: {{ Math.round(story.avgRelevance * 100) }}%</span>
+                          <span>Sources: {{ story.sources.join(', ') }}</span>
+                        </div>
+                      </div>
+                      
+                      <div class="ml-4 text-text-muted">
+                        <svg 
+                          :class="{ 'rotate-180': isStoryCardExpanded(story.id) }"
+                          class="w-5 h-5 transform transition-transform duration-200" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
                         >
-                          Read more →
-                        </a>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                      </div>
+                    </div>
+                    
+                    <!-- Expanded Articles -->
+                    <div v-if="isStoryCardExpanded(story.id)" class="border-t border-dark-border">
+                      <div class="p-4 space-y-4">
+                        <div
+                          v-for="(event, articleIndex) in story.articles"
+                          :key="event.id"
+                          class="timeline-item relative pl-8 pb-4"
+                          :class="{ 'timeline-item-last': articleIndex === story.articles.length - 1 }"
+                        >
+                          <!-- Timeline Dot -->
+                          <div class="absolute left-0 top-2 w-2 h-2 rounded-full border border-white"
+                               :style="{ backgroundColor: story.color }">
+                          </div>
+                          
+                          <!-- Timeline Line -->
+                          <div v-if="articleIndex < story.articles.length - 1" 
+                               class="absolute left-1 top-4 w-0.5 h-full bg-dark-border">
+                          </div>
+                          
+                          <!-- Event Content -->
+                          <div class="bg-dark-background/30 rounded-lg p-3">
+                            <div class="flex items-start justify-between mb-2">
+                              <h4 class="text-text-primary font-medium text-sm leading-tight">
+                                {{ event.title }}
+                              </h4>
+                              <span class="text-text-muted text-xs ml-4 flex-shrink-0">
+                                {{ formatDate(event.date) }}
+                              </span>
+                            </div>
+                            
+                            <p class="text-text-secondary text-sm mb-3 leading-relaxed">
+                              {{ event.description }}
+                            </p>
+                            
+                            <div class="flex items-center justify-between">
+                              <div class="flex items-center space-x-3">
+                                <!-- Source Credibility Badge -->
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs"
+                                      :class="{
+                                        'bg-emerald-500/20 text-emerald-400': getCredibilityTier(event) === 'tier1',
+                                        'bg-blue-500/20 text-blue-400': getCredibilityTier(event) === 'tier2',
+                                        'bg-yellow-500/20 text-yellow-400': getCredibilityTier(event) === 'tier3',
+                                        'bg-gray-500/20 text-gray-400': getCredibilityTier(event) === 'unrated'
+                                      }">
+                                  {{ getCredibilityLabel(event) }}
+                                </span>
+                                
+                                <!-- Relevance Score -->
+                                <span class="text-text-muted text-xs">
+                                  Relevance: {{ Math.round((event.relevance_score || event.relevance || 0) * 100) }}%
+                                </span>
+                                
+                                <!-- Source Name -->
+                                <span v-if="event.metadata?.source" class="text-text-muted text-xs font-medium">
+                                  {{ event.metadata.source }}
+                                </span>
+                              </div>
+                              
+                              <a v-if="event.source_url || event.sourceUrl" 
+                                 :href="event.source_url || event.sourceUrl" 
+                                 target="_blank"
+                                 class="text-neuron-glow hover:text-neuron-glow/80 text-xs"
+                              >
+                                Read more →
+                              </a>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -275,139 +330,10 @@
                 </div>
               </div>
             </div>
-
-            <!-- Timeline Legend -->
-            <div v-if="hasTimelineData" class="mt-6 p-4 bg-dark-background/50 rounded-xl">
-              <h4 class="text-sm font-medium text-text-primary mb-3">Source Credibility Legend</h4>
-              <div class="flex flex-wrap gap-4">
-                <div class="flex items-center">
-                  <div class="w-3 h-3 rounded-full mr-2 bg-emerald-500"></div>
-                  <span class="text-text-secondary text-sm">Highly Credible (Tier 1)</span>
-                </div>
-                <div class="flex items-center">
-                  <div class="w-3 h-3 rounded-full mr-2 bg-blue-500"></div>
-                  <span class="text-text-secondary text-sm">Credible (Tier 2)</span>
-                </div>
-                <div class="flex items-center">
-                  <div class="w-3 h-3 rounded-full mr-2 bg-yellow-500"></div>
-                  <span class="text-text-secondary text-sm">Specialized (Tier 3)</span>
-                </div>
-                <div class="flex items-center">
-                  <div class="w-3 h-3 rounded-full mr-2 bg-gray-500"></div>
-                  <span class="text-text-secondary text-sm">Unrated</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sidebar -->
-        <div class="space-y-6">
-          <!-- Timeline Stats -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Timeline Stats</h3>
-            <div class="space-y-4">
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-text-secondary text-sm">Total Events</span>
-                  <span class="text-text-primary font-semibold">{{ stats.totalEvents }}</span>
-                </div>
-                <div class="w-full bg-dark-background rounded-full h-2">
-                  <div class="bg-neuron-glow h-2 rounded-full" :style="{ width: '100%' }"></div>
-                </div>
-              </div>
-
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-text-secondary text-sm">Articles Analyzed</span>
-                  <span class="text-text-primary font-semibold">{{ stats.articlesAnalyzed }}</span>
-                </div>
-                <div class="w-full bg-dark-background rounded-full h-2">
-                  <div class="bg-blue-500 h-2 rounded-full" :style="{ width: `${(stats.articlesAnalyzed / stats.totalEvents) * 100}%` }"></div>
-                </div>
-              </div>
-
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-text-secondary text-sm">Key Entities</span>
-                  <span class="text-text-primary font-semibold">{{ stats.keyEntities }}</span>
-                </div>
-                <div class="w-full bg-dark-background rounded-full h-2">
-                  <div class="bg-green-500 h-2 rounded-full" :style="{ width: `${(stats.keyEntities / 20) * 100}%` }"></div>
-                </div>
-              </div>
-
-              <div>
-                <div class="flex justify-between items-center mb-2">
-                  <span class="text-text-secondary text-sm">Time Span</span>
-                  <span class="text-text-primary font-semibold">{{ stats.timeSpan }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Related Entities -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Related Entities</h3>
-            <div class="space-y-3">
-              <div
-                v-for="entity in relatedEntities"
-                :key="entity.id"
-                class="flex items-center justify-between p-3 bg-dark-background/50 rounded-lg hover:bg-dark-background transition-colors cursor-pointer"
-                @click="searchQuery = entity.name; generateTimeline()"
-              >
-                <div class="flex items-center">
-                  <div
-                    class="w-2 h-2 rounded-full mr-3"
-                    :style="{ backgroundColor: entity.color }"
-                  ></div>
-                  <span class="text-text-primary text-sm font-medium">{{ entity.name }}</span>
-                </div>
-                <span class="text-text-muted text-xs">{{ entity.mentions }} mentions</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Recent Activity -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Recent Activity</h3>
-            <div class="space-y-3">
-              <div
-                v-for="activity in recentActivity"
-                :key="activity.id"
-                class="p-3 bg-dark-background/50 rounded-lg"
-              >
-                <div class="flex items-start justify-between mb-2">
-                  <h4 class="text-text-primary text-sm font-medium">{{ activity.title }}</h4>
-                  <span class="text-text-muted text-xs">{{ activity.time }}</span>
-                </div>
-                <p class="text-text-secondary text-xs">{{ activity.description }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Recent Searches -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Recent Searches</h3>
-            <div class="space-y-2">
-              <button
-                v-for="search in recentSearches"
-                :key="search"
-                @click="searchQuery = search; generateTimeline()"
-                class="w-full text-left p-2 bg-dark-background/50 rounded-lg hover:bg-dark-background transition-colors text-text-primary text-sm"
-              >
-                <ClockIcon class="w-3 h-3 inline mr-2 text-text-muted" />
-                {{ search }}
-              </button>
-              <div v-if="recentSearches.length === 0" class="text-text-muted text-xs text-center py-4">
-                No recent searches yet
-              </div>
-            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
   <!-- Toast Container -->
   <div class="fixed bottom-4 right-4 z-50 space-y-2">
@@ -424,13 +350,11 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import { 
-  MagnifyingGlassIcon as SearchIcon, 
   XMarkIcon as XIcon, 
   SparklesIcon, 
   ClockIcon, 
   ArrowPathIcon as RotateCcwIcon, 
   ArrowDownTrayIcon as DownloadIcon,
-  ChevronDownIcon,
   MagnifyingGlassPlusIcon as ZoomInIcon,
   MagnifyingGlassMinusIcon as ZoomOutIcon,
   ChartBarIcon as BarChart3Icon,
@@ -446,7 +370,6 @@ const searchQuery = ref('')
 const timeRange = ref('30d')
 const isLoading = ref(false)
 const loadingStatus = ref('')
-const showAdvancedFilters = ref(false)
 const currentView = ref('timeline')
 const zoomLevel = ref(1)
 
@@ -457,6 +380,9 @@ let toastIdCounter = 0
 // Timeline data
 const timelineData = ref([])
 const timelineContainer = ref(null)
+
+// Story cards state
+const expandedStoryCards = ref(new Set())
 
 // Search history
 const recentSearches = ref([])
@@ -470,6 +396,64 @@ const viewModes = [
 
 // Computed
 const hasTimelineData = computed(() => timelineData.value.length > 0)
+
+// Group timeline events into story cards
+const storyCards = computed(() => {
+  if (!timelineData.value || timelineData.value.length === 0) return []
+  
+  // Group events by story cluster
+  const clusters = {}
+  
+  timelineData.value.forEach(event => {
+    const clusterId = event.metadata?.story_cluster ?? -1
+    
+    if (!clusters[clusterId]) {
+      clusters[clusterId] = {
+        clusterId,
+        articles: [],
+        earliestDate: event.date,
+        latestDate: event.date,
+        totalRelevance: 0,
+        sources: new Set()
+      }
+    }
+    
+    clusters[clusterId].articles.push(event)
+    clusters[clusterId].totalRelevance += event.relevance_score || 0
+    clusters[clusterId].sources.add(event.metadata?.source || 'Unknown')
+    
+    // Update date range
+    if (new Date(event.date) < new Date(clusters[clusterId].earliestDate)) {
+      clusters[clusterId].earliestDate = event.date
+    }
+    if (new Date(event.date) > new Date(clusters[clusterId].latestDate)) {
+      clusters[clusterId].latestDate = event.date
+    }
+  })
+  
+  // Convert to array and create story card data
+  return Object.values(clusters).map(cluster => {
+    const articles = cluster.articles.sort((a, b) => new Date(a.date) - new Date(b.date))
+    const avgRelevance = cluster.totalRelevance / articles.length
+    
+    return {
+      id: `story-${cluster.clusterId}`,
+      clusterId: cluster.clusterId,
+      title: cluster.clusterId >= 0 ? 
+        `Story Thread ${cluster.clusterId + 1}` : 
+        'Individual Reports',
+      summary: articles[0]?.title || 'No title',
+      articleCount: articles.length,
+      articles: articles,
+      earliestDate: cluster.earliestDate,
+      latestDate: cluster.latestDate,
+      avgRelevance: avgRelevance,
+      sources: Array.from(cluster.sources),
+      isExpanded: false,
+      color: getStoryThreadColor(cluster.clusterId)
+    }
+  }).sort((a, b) => new Date(a.earliestDate) - new Date(b.earliestDate))
+})
 
 const timelineTitle = computed(() => {
   if (!searchQuery.value) return 'Timeline Visualization'
@@ -697,6 +681,21 @@ const resetTimeline = () => {
   searchQuery.value = ''
 }
 
+// Story card management functions
+const toggleStoryCard = (storyId) => {
+  const expanded = new Set(expandedStoryCards.value)
+  if (expanded.has(storyId)) {
+    expanded.delete(storyId)
+  } else {
+    expanded.add(storyId)
+  }
+  expandedStoryCards.value = expanded
+}
+
+const isStoryCardExpanded = (storyId) => {
+  return expandedStoryCards.value.has(storyId)
+}
+
 const zoomIn = () => {
   if (zoomLevel.value < 3) {
     zoomLevel.value += 0.2
@@ -758,6 +757,14 @@ const getCredibilityLabel = (event) => {
   }
 }
 
+// Story thread visualization functions
+const getStoryThreadColor = (clusterId) => {
+  if (clusterId === undefined || clusterId < 0) return 'gray'
+  
+  const colors = ['purple', 'cyan', 'pink', 'orange', 'green', 'blue', 'red', 'yellow']
+  return colors[clusterId % colors.length]
+}
+
 const showErrorMessage = (message) => {
   const toast = {
     id: ++toastIdCounter,
@@ -784,25 +791,6 @@ const showSuccessMessage = (message) => {
     title: 'Success',
     message: message,
     duration: 4000
-  }
-  toasts.value.push(toast)
-  
-  // Auto-remove after duration
-  setTimeout(() => {
-    const index = toasts.value.findIndex(t => t.id === toast.id)
-    if (index > -1) {
-      toasts.value.splice(index, 1)
-    }
-  }, toast.duration)
-}
-
-const showInfoMessage = (message) => {
-  const toast = {
-    id: ++toastIdCounter,
-    type: 'info',
-    title: 'Info',
-    message: message,
-    duration: 3000
   }
   toasts.value.push(toast)
   
