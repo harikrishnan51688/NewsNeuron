@@ -1,34 +1,6 @@
 <template>
   <div class="dashboard-view h-full overflow-y-auto">
     
-    <!-- Minimalistic Hero Section -->
-    <section class="hero-section relative px-6 py-16 bg-gradient-to-br from-neuron-bg-primary via-slate-900/80 to-neuron-bg-primary">
-      <div class="content-width">
-        <div class="text-center space-y-8">
-          
-          <!-- Main Heading with lighter font -->
-          <h1 class="text-5xl lg:text-6xl xl:text-7xl text-display text-gradient">
-            NewsNeuron
-          </h1>
-          
-          <!-- Minimal Subtitle -->
-          <p class="text-xl lg:text-2xl text-body-sans text-neuron-text-secondary max-w-3xl mx-auto leading-relaxed font-light">
-            AI-curated insights, processed like interconnected neurons.
-          </p>
-          
-        </div>
-      </div>
-      
-      <!-- Subtle animated background -->
-      <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <div v-for="i in 12" :key="i" 
-             :class="getParticleColor(i)"
-             class="absolute w-0.5 h-0.5 rounded-full animate-pulse"
-             :style="particleStyle(i)">
-        </div>
-      </div>
-    </section>
-
     <!-- Main Content - Top Headlines -->
     <section class="main-content px-6 py-12">
       <div class="content-width">
@@ -136,28 +108,6 @@ const displayedHeadlines = computed(() => {
   return headlines.value
 })
 
-// Particle animation with color variety
-const particleStyle = () => {
-  return {
-    left: Math.random() * 100 + '%',
-    top: Math.random() * 100 + '%',
-    animationDelay: Math.random() * 3 + 's',
-    animationDuration: (Math.random() * 3 + 2) + 's'
-  }
-}
-
-const getParticleColor = (index) => {
-  const colors = [
-    'bg-neuron-glow/10',
-    'bg-accent-emerald/8',
-    'bg-accent-violet/8',
-    'bg-accent-amber/8',
-    'bg-accent-rose/8',
-    'bg-accent-cyan/8'
-  ]
-  return colors[index % colors.length]
-}
-
 // Methods
 const fetchHeadlines = async () => {
   try {
@@ -168,7 +118,7 @@ const fetchHeadlines = async () => {
       category: selectedCategory.value,
       lang: 'en',
       country: 'us',
-      max_articles: 12
+      max_articles: 8
     })
     
     if (response.data.success) {

@@ -722,7 +722,7 @@ async def get_top_headlines(
     category: str = "general", 
     lang: str = "en", 
     country: str = "us", 
-    max_articles: int = 10
+    max_articles: int = 8
 ):
     """
     Get top headlines from GNews API.
@@ -845,49 +845,234 @@ async def get_available_categories():
 # Helper functions for timeline processing
 def _calculate_source_credibility(source_name: str) -> dict:
     """
-    Calculate source credibility and relevance indicators.
-    Returns dictionary with credibility score and metadata.
+    Calculate source credibility and political leaning indicators based on comprehensive journalism standards.
+    Research sources: Reuters Institute Digital News Report 2024, Wikipedia circulation data,
+    Pew Research Center Political Polarization & Media Habits study, and major international news agency standards.
+    
+    Returns dictionary with credibility score, political leaning, and metadata.
     """
     if not source_name:
-        return {"score": 0.5, "tier": "unknown", "category": "unknown"}
+        return {"score": 0.5, "tier": "unknown", "category": "unknown", "political_leaning": "center"}
     
     source_lower = source_name.lower()
     
-    # Tier 1: Highly credible sources
+    # TIER 1: PREMIER INTERNATIONAL WIRE SERVICES & MAJOR NEWSPAPERS (Score: 0.95)
+    # International wire services, papers of record, high circulation dailies
     tier1_sources = [
-        'reuters', 'associated press', 'bbc', 'the guardian', 'wall street journal',
-        'financial times', 'the new york times', 'the washington post', 'npr',
-        'bloomberg', 'cnbc', 'cnn', 'abc news', 'cbs news', 'nbc news',
-        'the economist', 'time', 'newsweek', 'the atlantic', 'the new yorker'
+        # Major International Wire Services (Primary sources for global news)
+        'reuters', 'associated press', 'ap news', 'agence france-presse', 'afp',
+        'bbc news', 'bbc', 'bloomberg news', 'bloomberg',
+        
+        # Papers of Record & High Circulation Newspapers
+        'the new york times', 'nytimes', 'wall street journal', 'wsj',
+        'the washington post', 'washingtonpost', 'the guardian', 'guardian',
+        'financial times', 'ft.com', 'the times', 'times of london',
+        'usa today', 'usatoday',  # #3 circulation in US
+        
+        # Major International Newspapers
+        'the telegraph', 'telegraph.co.uk', 'the independent', 'independent.co.uk',
+        'daily mail', 'dailymail.co.uk', 'the sun', 'thesun.co.uk',
+        'le monde', 'lemonde.fr', 'le figaro', 'lefigaro.fr',
+        'frankfurter allgemeine', 'faz.net', 'der spiegel', 'spiegel.de',
+        'süddeutsche zeitung', 'sueddeutsche.de', 'die zeit', 'zeit.de',
+        'corriere della sera', 'corriere.it', 'la repubblica', 'repubblica.it',
+        'la gazzetta dello sport', 'gazzetta.it', 'el país', 'elpais.com',
+        'el mundo', 'elmundo.es', 'la vanguardia', 'lavanguardia.com',
+        'yomiuri shimbun', 'yomiuri.co.jp', 'asahi shimbun', 'asahi.com',
+        'mainichi shimbun', 'mainichi.jp', 'nikkei', 'nikkei.com',
+        
+        # Major TV News Networks (Established)
+        'cnn', 'cnn.com', 'fox news', 'foxnews.com', 'abc news', 'abcnews.go.com',
+        'cbs news', 'cbsnews.com', 'nbc news', 'nbcnews.com', 'pbs', 'pbs.org',
+        'npr', 'npr.org'
     ]
     
-    # Tier 2: Generally reliable sources
+    # TIER 2: ESTABLISHED NATIONAL & REGIONAL NEWS ORGANIZATIONS (Score: 0.8)
+    # National news agencies, established regional papers, specialty publications
     tier2_sources = [
-        'yahoo', 'msn', 'usa today', 'huffpost', 'business insider',
-        'techcrunch', 'wired', 'ars technica', 'the verge', 'engadget',
-        'scientific american', 'nature', 'science', 'ieee spectrum'
+        # National News Agencies by Country
+        'canadian press', 'cp.ca', 'australian associated press', 'aap',
+        'press association', 'pa media', 'deutsche presse-agentur', 'dpa',
+        'agencia efe', 'efe.com', 'ansa', 'ansa.it', 'kyodo news', 'kyodo.co.jp',
+        'yonhap', 'yonhapnews.co.kr', 'xinhua', 'xinhuanet.com',
+        'tass', 'tass.ru', 'interfax', 'interfax.ru',
+        'press trust of india', 'pti', 'united news of india', 'uni',
+        
+        # Major Regional & National Papers
+        'chicago tribune', 'chicagotribune.com', 'los angeles times', 'latimes.com',
+        'boston globe', 'bostonglobe.com', 'denver post', 'denverpost.com',
+        'san francisco chronicle', 'sfchronicle.com', 'atlanta journal-constitution',
+        'philadelphia inquirer', 'inquirer.com', 'miami herald', 'miamiherald.com',
+        'seattle times', 'seattletimes.com', 'dallas morning news', 'dallasnews.com',
+        'houston chronicle', 'houstonchronicle.com',
+        
+        # Major International Outlets
+        'sky news', 'skynews.com', 'itv news', 'itv.com', 'channel 4 news',
+        'france 24', 'france24.com', 'dw', 'dw.com', 'rt', 'rt.com',
+        'al jazeera', 'aljazeera.com', 'cbc', 'cbc.ca', 'ctv news', 'ctvnews.ca',
+        'global news', 'globalnews.ca', 'nine news', 'nine.com.au',
+        'abc australia', 'abc.net.au', 'sbs news', 'sbs.com.au',
+        
+        # Business & Financial Publications
+        'cnbc', 'cnbc.com', 'marketwatch', 'marketwatch.com', 'forbes', 'forbes.com',
+        'fortune', 'fortune.com', 'business insider', 'businessinsider.com',
+        'the economist', 'economist.com', 'harvard business review', 'hbr.org',
+        
+        # Quality Magazines & Weeklies
+        'time', 'time.com', 'newsweek', 'newsweek.com', 'the atlantic', 'theatlantic.com',
+        'the new yorker', 'newyorker.com', 'harper\'s magazine', 'harpers.org',
+        'the nation', 'thenation.com', 'national review', 'nationalreview.com',
+        'foreign affairs', 'foreignaffairs.com', 'foreign policy', 'foreignpolicy.com'
     ]
     
-    # Tier 3: Specialized/niche sources
+    # TIER 3: CREDIBLE SPECIALIZED & EMERGING SOURCES (Score: 0.65)
+    # Tech publications, scientific journals, regional outlets, digital-first media
     tier3_sources = [
-        'local news', 'industry', 'blog', 'opinion', 'editorial'
+        # Technology Publications
+        'techcrunch', 'techcrunch.com', 'wired', 'wired.com', 'the verge', 'theverge.com',
+        'ars technica', 'arstechnica.com', 'engadget', 'engadget.com',
+        'recode', 'recode.net', 'mashable', 'mashable.com', 'gizmodo', 'gizmodo.com',
+        'cnet', 'cnet.com', 'zdnet', 'zdnet.com', 'computerworld', 'computerworld.com',
+        
+        # Scientific & Academic Publications
+        'scientific american', 'scientificamerican.com', 'nature', 'nature.com',
+        'science', 'science.org', 'new scientist', 'newscientist.com',
+        'ieee spectrum', 'spectrum.ieee.org', 'mit technology review', 'technologyreview.com',
+        
+        # Digital-First Quality News
+        'vox', 'vox.com', 'buzzfeed news', 'buzzfeednews.com', 'huffpost', 'huffpost.com',
+        'politico', 'politico.com', 'the hill', 'thehill.com', 'axios', 'axios.com',
+        'propublica', 'propublica.org', 'the intercept', 'theintercept.com',
+        
+        # Entertainment & Culture
+        'variety', 'variety.com', 'hollywood reporter', 'hollywoodreporter.com',
+        'entertainment weekly', 'ew.com', 'rolling stone', 'rollingstone.com',
+        
+        # Sports Publications
+        'espn', 'espn.com', 'sports illustrated', 'si.com', 'the athletic', 'theathletic.com',
+        'bbc sport', 'skysports', 'espn.co.uk',
+        
+        # Aggregation Services
+        'yahoo news', 'yahoo.com', 'msn news', 'msn.com', 'google news', 'news.google.com',
+        'apple news', 'news.apple.com'
     ]
     
-    # Check against tiers
-    for source in tier1_sources:
-        if source in source_lower:
-            return {"score": 0.9, "tier": "tier1", "category": "major_news"}
+    # POLITICAL LEANING CLASSIFICATIONS
+    # Based on Pew Research Center Political Polarization & Media Habits study and media bias research
     
-    for source in tier2_sources:
-        if source in source_lower:
-            return {"score": 0.7, "tier": "tier2", "category": "established_media"}
+    # LEFT-LEANING SOURCES (Liberal/Progressive)
+    left_sources = [
+        # Consistent Liberal Sources (Pew Research)
+        'msnbc', 'msnbc.com', 'the new yorker', 'newyorker.com', 'slate', 'slate.com',
+        'mother jones', 'motherjones.com', 'the nation', 'thenation.com',
+        'democracy now', 'democracynow.org', 'the intercept', 'theintercept.com',
+        'jacobin', 'jacobinmag.com', 'in these times', 'inthesetimes.com',
+        'the progressive', 'progressive.org', 'common dreams', 'commondreams.org',
+        
+        # Leans Left Sources
+        'huffpost', 'huffpost.com', 'the daily beast', 'thedailybeast.com',
+        'buzzfeed news', 'buzzfeednews.com', 'vox', 'vox.com', 'salon', 'salon.com',
+        'alternet', 'alternet.org', 'raw story', 'rawstory.com',
+        'the guardian', 'guardian.com', 'the independent', 'independent.co.uk',
+        'washington post', 'washingtonpost.com', 'new york times', 'nytimes.com',
+        'cnn', 'cnn.com', 'npr', 'npr.org', 'pbs', 'pbs.org',
+        'la times', 'latimes.com', 'boston globe', 'bostonglobe.com'
+    ]
     
-    for source in tier3_sources:
-        if source in source_lower:
-            return {"score": 0.5, "tier": "tier3", "category": "specialized"}
+    # RIGHT-LEANING SOURCES (Conservative)  
+    right_sources = [
+        # Consistent Conservative Sources (Pew Research)
+        'fox news', 'foxnews.com', 'talk radio news', 'rush limbaugh', 'sean hannity',
+        'glenn beck', 'breitbart', 'breitbart.com', 'daily wire', 'dailywire.com',
+        'townhall', 'townhall.com', 'redstate', 'redstate.com', 'hot air', 'hotair.com',
+        'pj media', 'pjmedia.com', 'the federalist', 'thefederalist.com',
+        'american thinker', 'americanthinker.com', 'newsmax', 'newsmax.com',
+        'one america news', 'oann', 'the blaze', 'theblaze.com',
+        
+        # Leans Right Sources
+        'wall street journal', 'wsj.com', 'washington examiner', 'washingtonexaminer.com',
+        'new york post', 'nypost.com', 'daily mail', 'dailymail.co.uk',
+        'fox business', 'foxbusiness.com', 'national review', 'nationalreview.com',
+        'weekly standard', 'weeklystandard.com', 'reason', 'reason.com',
+        'washington times', 'washingtontimes.com', 'american spectator', 'spectator.org',
+        'drudge report', 'drudgereport.com'
+    ]
     
-    # Default for unknown sources
-    return {"score": 0.6, "tier": "unrated", "category": "unknown"}
+    # CENTER SOURCES (Neutral/Mixed Audience)
+    center_sources = [
+        # Wire Services (Neutral by design)
+        'reuters', 'associated press', 'ap news', 'agence france-presse', 'afp',
+        'bloomberg', 'bloomberg.com',
+        
+        # Mixed Audience Sources (Pew Research)
+        'usa today', 'usatoday.com', 'abc news', 'abcnews.go.com',
+        'cbs news', 'cbsnews.com', 'nbc news', 'nbcnews.com',
+        'bbc', 'bbc.com', 'bbc news', 'time', 'time.com',
+        'newsweek', 'newsweek.com', 'the economist', 'economist.com',
+        'financial times', 'ft.com', 'christian science monitor', 'csmonitor.com',
+        'yahoo news', 'yahoo.com', 'google news', 'news.google.com',
+        'msn news', 'msn.com', 'local tv', 'local news'
+    ]
+    
+    def matches_source(source_list, source_lower):
+        """Check if source matches any in the list with partial matching"""
+        for source in source_list:
+            # Direct match or substring match
+            if source in source_lower or source_lower in source:
+                return True
+            # Domain matching (remove common prefixes/suffixes)
+            source_clean = source.replace('the ', '').replace('.com', '').replace('.co.uk', '').replace('.org', '')
+            source_lower_clean = source_lower.replace('the ', '').replace('.com', '').replace('.co.uk', '').replace('.org', '')
+            if source_clean in source_lower_clean or source_lower_clean in source_clean:
+                return True
+        return False
+    
+    def determine_political_leaning(source_lower):
+        """Determine political leaning based on source classification"""
+        if matches_source(left_sources, source_lower):
+            return "left"
+        elif matches_source(right_sources, source_lower):
+            return "right"
+        elif matches_source(center_sources, source_lower):
+            return "center"
+        else:
+            return "center"  # Default to center for unknown sources
+    
+    # Determine political leaning
+    political_leaning = determine_political_leaning(source_lower)
+    
+    # Check against credibility tiers
+    if matches_source(tier1_sources, source_lower):
+        return {
+            "score": 0.95, 
+            "tier": "tier1", 
+            "category": "premier_international",
+            "political_leaning": political_leaning
+        }
+    
+    if matches_source(tier2_sources, source_lower):
+        return {
+            "score": 0.8, 
+            "tier": "tier2", 
+            "category": "established_national",
+            "political_leaning": political_leaning
+        }
+    
+    if matches_source(tier3_sources, source_lower):
+        return {
+            "score": 0.65, 
+            "tier": "tier3", 
+            "category": "credible_specialized",
+            "political_leaning": political_leaning
+        }
+    
+    # Default for unknown sources - slightly lower to encourage known sources
+    return {
+        "score": 0.55, 
+        "tier": "unrated", 
+        "category": "unknown",
+        "political_leaning": political_leaning
+    }
 
 def _calculate_relevance(article, entity_name: str) -> float:
     """

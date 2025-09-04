@@ -8,13 +8,21 @@
         class="w-full h-48 object-cover rounded-xl"
         @error="handleImageError"
       />
-      <!-- Source Credibility Badge -->
-      <div class="absolute top-3 right-3">
+      <!-- Source Badges with improved readability -->
+      <div class="absolute top-3 right-3 flex flex-col space-y-1 items-end">
+        <!-- Credibility Badge -->
         <span 
           :class="credibilityBadgeClass"
-          class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
+          class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm border border-white/20 shadow-lg"
         >
           {{ credibilityLabel }}
+        </span>
+        <!-- Political Leaning Badge -->
+        <span 
+          :class="politicalLeaningBadgeClass"
+          class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm border border-white/20 shadow-lg"
+        >
+          {{ politicalLeaningLabel }}
         </span>
       </div>
     </div>
@@ -97,16 +105,45 @@ const credibilityLabel = computed(() => {
   }
 })
 
+// Computed properties for political leaning display
+const politicalLeaning = computed(() => {
+  return props.headline.source.credibility?.political_leaning || 'center'
+})
+
+const politicalLeaningLabel = computed(() => {
+  switch (politicalLeaning.value) {
+    case 'left':
+      return 'Left'
+    case 'right':
+      return 'Right'
+    case 'center':
+    default:
+      return 'Center'
+  }
+})
+
 const credibilityBadgeClass = computed(() => {
   switch (credibilityTier.value) {
     case 'tier1':
-      return 'bg-emerald-500/20 text-emerald-400'
+      return 'bg-emerald-600/90 text-white'
     case 'tier2':
-      return 'bg-blue-500/20 text-blue-400'
+      return 'bg-blue-600/90 text-white'
     case 'tier3':
-      return 'bg-yellow-500/20 text-yellow-400'
+      return 'bg-yellow-600/90 text-white'
     default:
-      return 'bg-gray-500/20 text-gray-400'
+      return 'bg-gray-600/90 text-white'
+  }
+})
+
+const politicalLeaningBadgeClass = computed(() => {
+  switch (politicalLeaning.value) {
+    case 'left':
+      return 'bg-blue-700/90 text-white'
+    case 'right':
+      return 'bg-red-700/90 text-white'
+    case 'center':
+    default:
+      return 'bg-purple-700/90 text-white'
   }
 })
 
