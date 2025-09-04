@@ -4,19 +4,19 @@ AI Agent with LangGraph for news, knowledge graph queries, and flashcard generat
 import json
 import logging
 import uuid
-from typing import List, TypedDict, Literal
 from datetime import datetime, timedelta
+from typing import List, Literal, TypedDict
 
-from langgraph.graph import StateGraph, START, END
-from langchain_core.messages import BaseMessage, ToolMessage, AIMessage
+from langchain.tools import tool
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain.tools import tool
+from langgraph.graph import END, START, StateGraph
 
 from core.config import settings
 from retrieval.fetch_news import fetch_gnews as fetch_gnews_api
-from retrieval.vector_store import VectorStore
 from retrieval.knowledge_graph import KnowledgeGraph
+from retrieval.vector_store import VectorStore
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -155,23 +155,24 @@ def search_entity_relationships(entity1: str, entity2: str) -> str:
             "error": f"Relationship search failed: {str(e)}"
         })
 
+
 # ============================================================================
-# FLASHCARD TOOLS
+# ENHANCED FLASHCARD TOOLS
 # ============================================================================
 
 @tool
 def generate_flashcards_from_content(
     topic: str, 
-    source_type: str = "knowledge_base",
+    source_type: str = "recent_news",
     difficulty: str = "medium", 
-    count: int = 5
+    count: int = 10
 ) -> str:
     """
-    Generate educational flashcards from various content sources.
+    Generate educational flashcards from various content sources with enhanced news focus.
     
     Args:
         topic: The subject/topic for flashcard generation
-        source_type: Source to generate from (knowledge_base, recent_news, entities)
+        source_type: Source to generate from (recent_news, knowledge_base, entities)
         difficulty: Difficulty level (easy, medium, hard)
         count: Number of flashcards to generate
         
@@ -182,108 +183,162 @@ def generate_flashcards_from_content(
         flashcards = []
         
         if source_type == "recent_news":
-            # Generate from recent news articles
+            # Enhanced news flashcard generation
             news_result = fetch_gnews(topic)
             news_data = json.loads(news_result)
             
             if "articles" in news_data and news_data["articles"]:
-                articles = news_data["articles"][:min(3, count)]  # Use top 3 articles or less
+                articles = news_data["articles"][:min(5, len(news_data["articles"]))]
                 
+                # Generate multiple types of questions per article
                 for i, article in enumerate(articles):
-                    # Create different types of questions based on news content
-                    question_types = [
-                        f"What recent development occurred regarding {topic}?",
-                        f"According to recent news, what is happening with {topic}?",
-                        f"What key information should you know about {topic} based on current events?"
+                    title = article.get('title', '')
+                    description = article.get('description', '')
+                    content = article.get('content', description)
+                    source_name = article.get('source', {}).get('name', 'News Source')
+                    published_date = article.get('publishedAt', '')
+                    
+                    # Question type variations for news articles
+                    question_templates = [
+                        {
+                            "type": "Breaking News",
+                            "question": f"What recent development has been reported regarding {topic}?",
+                            "answer": f"According to {source_name}: {description[:300]}{'...' if len(description) > 300 else ''}",
+                            "context": f"Breaking news from {source_name}"
+                        },
+                        {
+                            "type": "Current Events",
+                            "question": f"What is the latest update on {topic} according to recent news?",
+                            "answer": f"Recent reporting indicates: {content[:400] if content else description[:400]}{'...' if len(content or description) > 400 else ''}",
+                            "context": f"Current events update from {source_name}"
+                        },
+                        {
+                            "type": "News Analysis",
+                            "question": f"Why is {topic} currently making headlines?",
+                            "answer": f"This story is significant because: {description[:250]}{'...' if len(description) > 250 else ''}\n\nSource: {source_name}",
+                            "context": f"News analysis from {published_date[:10] if published_date else 'recent'}"
+                        },
+                        {
+                            "type": "Fact Check",
+                            "question": f"What are the key facts about the recent {topic} news?",
+                            "answer": f"Key facts from {source_name}:\n• {description[:200]}{'...' if len(description) > 200 else ''}\n• Published: {published_date[:10] if published_date else 'Recently'}",
+                            "context": "Fact-based news summary"
+                        }
                     ]
                     
-                    flashcard = {
-                        "id": f"news_{topic.replace(' ', '_')}_{i+1}_{uuid.uuid4().hex[:8]}",
-                        "category": f"Current Events - {topic}",
-                        "question": question_types[i % len(question_types)],
-                        "answer": f"Recent news from {article.get('source', {}).get('name', 'news source')}: {article.get('description', article.get('content', 'No description available'))[:300]}...",
-                        "difficulty": difficulty,
-                        "tags": ["current_events", topic.lower().replace(" ", "_"), "news"],
-                        "status": "new"
-                    }
-                    flashcards.append(flashcard)
+                    # Create 2-3 flashcards per article with different question types
+                    cards_per_article = min(2, count - len(flashcards))
+                    for j in range(cards_per_article):
+                        if len(flashcards) >= count:
+                            break
+                            
+                        template = question_templates[j % len(question_templates)]
+                        
+                        flashcard = {
+                            "id": f"news_{topic.replace(' ', '_')}_{i}_{j}_{uuid.uuid4().hex[:8]}",
+                            "category": f"News - {topic.title()}",
+                            "question": template["question"],
+                            "answer": template["answer"],
+                            "difficulty": difficulty,
+                            "tags": ["current_events", "news", topic.lower().replace(" ", "_"), template["type"].lower().replace(" ", "_")],
+                            "status": "new",
+                            "questionType": template["type"],
+                            "newsDate": published_date,
+                            "source": source_name,
+                            "context": template["context"],
+                            "readMore": article.get('url', '')
+                        }
+                        flashcards.append(flashcard)
+                        
+                        if len(flashcards) >= count:
+                            break
                     
+                    if len(flashcards) >= count:
+                        break
+                        
         elif source_type == "entities":
             # Generate from knowledge graph entities
             kg_result = query_knowledge_graph(f"Find entities and relationships related to {topic}")
             kg_data = json.loads(kg_result)
             
-            if "entities" in kg_data and kg_data["entities"]:
+            if kg_data.get("entities"):
                 entities = kg_data["entities"][:count]
                 for i, entity in enumerate(entities):
-                    question_types = [
-                        f"What is the role of {entity.get('name', 'this entity')} in {topic}?",
-                        f"How does {entity.get('name', 'this entity')} relate to {topic}?",
-                        f"What should you know about {entity.get('name', 'this entity')} in the context of {topic}?"
+                    entity_name = entity.get('name', f'Entity {i+1}')
+                    
+                    question_templates = [
+                        f"Who or what is {entity_name} in relation to {topic}?",
+                        f"What role does {entity_name} play in {topic}?",
+                        f"How is {entity_name} connected to {topic}?",
+                        f"What should you know about {entity_name} regarding {topic}?"
                     ]
                     
                     flashcard = {
-                        "id": f"entity_{topic.replace(' ', '_')}_{i+1}_{uuid.uuid4().hex[:8]}",
+                        "id": f"entity_{topic.replace(' ', '_')}_{i}_{uuid.uuid4().hex[:8]}",
                         "category": f"Knowledge Graph - {topic}",
-                        "question": question_types[i % len(question_types)],
-                        "answer": f"This entity has {entity.get('relationship', 'a connection')} with {topic}. {entity.get('description', 'Additional context available in knowledge graph.')}",
+                        "question": question_templates[i % len(question_templates)],
+                        "answer": f"{entity_name} is connected to {topic} through: {entity.get('relationship', 'various relationships')}. {entity.get('description', 'Additional context available in knowledge graph.')}",
                         "difficulty": difficulty,
                         "tags": ["knowledge_graph", topic.lower().replace(" ", "_"), "entities"],
-                        "status": "new"
+                        "status": "new",
+                        "questionType": "Entity Relationship"
                     }
                     flashcards.append(flashcard)
-        
+                    
         else:  # knowledge_base (search stored articles)
-            # Generate from stored knowledge base articles
-            kb_result = search_articles(topic, top_k=3)
+            kb_result = search_articles(topic, top_k=min(5, count))
             kb_data = json.loads(kb_result)
             
             if kb_data and not kb_data.get("error"):
-                articles = kb_data[:min(3, count)]
+                articles = kb_data[:min(3, len(kb_data))]
                 
                 for i, article in enumerate(articles):
-                    question_types = [
-                        f"What is the main concept of {topic}?",
-                        f"What are the key characteristics of {topic}?",
-                        f"What important information should you know about {topic}?",
-                        f"How would you explain {topic} to someone?",
-                        f"What are the main points about {topic}?"
+                    content = article.get("content", article.get("summary", ""))
+                    
+                    question_templates = [
+                        f"What are the key points about {topic}?",
+                        f"How would you explain {topic} based on available information?",
+                        f"What important details should you know about {topic}?",
+                        f"What context is important for understanding {topic}?"
                     ]
                     
-                    # Use article content to create more specific answers
-                    content = article.get("content", article.get("summary", ""))[:400]
-                    
                     flashcard = {
-                        "id": f"kb_{topic.replace(' ', '_')}_{i+1}_{uuid.uuid4().hex[:8]}",
+                        "id": f"kb_{topic.replace(' ', '_')}_{i}_{uuid.uuid4().hex[:8]}",
                         "category": f"Knowledge Base - {topic}",
-                        "question": question_types[i % len(question_types)],
-                        "answer": content + "..." if content else f"Based on stored knowledge: Key information about {topic} from our database.",
+                        "question": question_templates[i % len(question_templates)],
+                        "answer": content[:500] + "..." if len(content) > 500 else content,
                         "difficulty": difficulty,
                         "tags": ["knowledge_base", topic.lower().replace(" ", "_")],
-                        "status": "new"
+                        "status": "new",
+                        "source": article.get("source", "Knowledge Base"),
+                        "questionType": "Knowledge Review"
                     }
                     flashcards.append(flashcard)
+                    
+                    if len(flashcards) >= count:
+                        break
         
-        # Fill remaining slots with general questions if needed
+        # If we still need more cards, generate conceptual ones
         while len(flashcards) < count:
-            general_questions = [
-                f"What are some important facts about {topic}?",
-                f"Why is {topic} significant or important?",
-                f"What should someone know about {topic}?",
-                f"How is {topic} relevant in today's context?",
-                f"What are the main aspects of {topic}?"
+            conceptual_questions = [
+                f"What are the main aspects of {topic} that are currently relevant?",
+                f"Why is {topic} significant in current events?",
+                f"What should someone know to stay informed about {topic}?",
+                f"How does {topic} impact current affairs?",
+                f"What are the key developments in {topic}?"
             ]
             
-            question_index = len(flashcards) % len(general_questions)
+            q_index = len(flashcards) % len(conceptual_questions)
             
             flashcard = {
-                "id": f"general_{topic.replace(' ', '_')}_{len(flashcards)+1}_{uuid.uuid4().hex[:8]}",
-                "category": f"General Knowledge - {topic}",
-                "question": general_questions[question_index],
-                "answer": f"General knowledge about {topic} - this would be filled with specific information based on available sources and context.",
+                "id": f"concept_{topic.replace(' ', '_')}_{len(flashcards)}_{uuid.uuid4().hex[:8]}",
+                "category": f"Conceptual - {topic}",
+                "question": conceptual_questions[q_index],
+                "answer": f"This is a conceptual question about {topic}. The answer would be based on current information, recent developments, and key facts related to this topic.",
                 "difficulty": difficulty,
-                "tags": ["general", topic.lower().replace(" ", "_")],
-                "status": "new"
+                "tags": ["conceptual", topic.lower().replace(" ", "_")],
+                "status": "new",
+                "questionType": "Conceptual Understanding"
             }
             flashcards.append(flashcard)
         
@@ -298,7 +353,7 @@ def generate_flashcards_from_content(
         return json.dumps(result, indent=2)
         
     except Exception as e:
-        logger.error(f"Flashcard generation error: {e}")
+        logger.error(f"Enhanced flashcard generation error: {e}")
         return json.dumps({
             "success": False,
             "error": str(e),
@@ -315,23 +370,14 @@ def get_flashcards_for_study(
     limit: int = 20
 ) -> str:
     """
-    Retrieve flashcards for study sessions with filtering options.
-    
-    Args:
-        category: Filter by category (optional)
-        difficulty: Filter by difficulty level (easy, medium, hard)
-        status: Filter by status (new, learning, known)
-        due_for_review: Only get cards due for review
-        limit: Maximum number of cards to return
-        
-    Returns:
-        JSON string with flashcards ready for study
+    Retrieve flashcards for study sessions with enhanced filtering and smart selection.
     """
     try:
         store = VectorStore()
         query = """
             SELECT id, category, question, answer, difficulty, tags, status, 
-                   created_at, last_reviewed, review_count, success_rate, next_review
+                   created_at, last_reviewed, review_count, success_rate, next_review,
+                   source_type, news_date, source_url, context
             FROM flashcards WHERE 1=1
         """
         params = []
@@ -346,18 +392,20 @@ def get_flashcards_for_study(
             query += " AND status = %s"
             params.append(status)
         if due_for_review:
-            query += " AND (next_review IS NULL OR next_review <= %s)"
+            query += " AND (next_review IS NULL OR next_review <= %s OR status = 'new')"
             params.append(datetime.now())
             
-        # Prioritize cards that need review
+        # Smart ordering: prioritize new cards and due reviews
         query += """ ORDER BY 
                     CASE WHEN status = 'new' THEN 1
-                         WHEN status = 'learning' THEN 2
-                         ELSE 3 END,
+                         WHEN next_review IS NOT NULL AND next_review <= %s THEN 2
+                         WHEN status = 'learning' THEN 3
+                         ELSE 4 END,
+                    CASE WHEN news_date IS NOT NULL THEN news_date ELSE created_at END DESC,
                     last_reviewed ASC NULLS FIRST
                     LIMIT %s
                 """
-        params.append(limit)
+        params.extend([datetime.now(), limit])
         
         with store.pg_conn.cursor() as cursor:
             cursor.execute(query, params)
@@ -377,7 +425,11 @@ def get_flashcards_for_study(
                     "last_reviewed": str(row[8]) if row[8] else None,
                     "review_count": row[9] or 0,
                     "success_rate": float(row[10]) if row[10] else 0.0,
-                    "next_review": str(row[11]) if row[11] else None
+                    "next_review": str(row[11]) if row[11] else None,
+                    "source_type": row[12],
+                    "news_date": str(row[13]) if row[13] else None,
+                    "source_url": row[14],
+                    "context": row[15]
                 })
         
         store.close()
@@ -395,32 +447,80 @@ def get_flashcards_for_study(
         }, indent=2)
         
     except Exception as e:
-        logger.error(f"Flashcard retrieval error: {e}")
+        logger.error(f"Enhanced flashcard retrieval error: {e}")
         return json.dumps({
             "success": False,
             "error": f"Retrieval failed: {str(e)}",
             "flashcards": []
         })
 
+# Keep existing tools
+@tool
+def fetch_gnews(query: str) -> str:
+    """Fetch latest news articles based on a search query."""
+    try:
+        results = fetch_gnews_api(query)
+        return json.dumps(results, indent=2)
+    except Exception as e:
+        logger.error(f"Error fetching news: {e}")
+        return json.dumps({"error": f"Failed to fetch news: {str(e)}"})
+
+@tool
+def search_articles(query: str, top_k: int = 5) -> str:
+    """Search stored articles using semantic similarity."""
+    try:
+        embedding = vs.embedding_generator.generate_embeddings(query)
+        results = vs.pinecone_index.query(
+            vector=embedding, 
+            top_k=top_k, 
+            include_metadata=True
+        )
+        
+        articles = []
+        with vs.pg_conn.cursor() as cursor:
+            for match in results["matches"]:
+                article_id = match["metadata"]["article_id"]
+                cursor.execute("SELECT * FROM articles WHERE id = %s", (article_id,))
+                row = cursor.fetchone()
+                
+                if row:
+                    articles.append({
+                        "id": row[0],
+                        "title": row[1],
+                        "content": row[2],
+                        "summary": row[3],
+                        "url": row[4],
+                        "source": row[5],
+                        "author": row[6],
+                        "published_date": str(row[7]),
+                        "similarity_score": match["score"]
+                    })
+        
+        return json.dumps(articles, indent=2)
+        
+    except Exception as e:
+        logger.error(f"Error searching articles: {e}")
+        return json.dumps({"error": f"Search failed: {str(e)}"})
+
+@tool
+def query_knowledge_graph(question: str) -> str:
+    """Query the knowledge graph for entity relationships and information."""
+    try:
+        result = kg.analyze_question_and_query(question)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Knowledge graph query error: {e}")
+        return json.dumps({"error": f"Knowledge graph query failed: {str(e)}"})
+
 @tool
 def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int = None) -> str:
-    """
-    Record the result of reviewing a flashcard and update its status using spaced repetition.
-    
-    Args:
-        card_id: Unique identifier of the flashcard
-        correct: Whether the answer was correct
-        difficulty_rating: Optional difficulty rating from 1-5 (1=very easy, 5=very hard)
-        
-    Returns:
-        JSON string with review results and next review date
-    """
+    """Record flashcard review with enhanced spaced repetition algorithm."""
     try:
         store = VectorStore()
         with store.pg_conn.cursor() as cursor:
             # Get current flashcard data
             cursor.execute("""
-                SELECT review_count, success_rate, status 
+                SELECT review_count, success_rate, status, difficulty 
                 FROM flashcards WHERE id = %s
             """, (card_id,))
             row = cursor.fetchone()
@@ -431,7 +531,7 @@ def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int 
                     "error": "Flashcard not found"
                 })
             
-            current_review_count, current_success_rate, current_status = row
+            current_review_count, current_success_rate, current_status, card_difficulty = row
             current_review_count = current_review_count or 0
             current_success_rate = float(current_success_rate) if current_success_rate else 0.0
             
@@ -441,33 +541,46 @@ def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int 
                 / (current_review_count + 1)
             )
             
-            # Spaced repetition algorithm
+            # Enhanced spaced repetition algorithm
             if correct:
                 if current_review_count == 0:
                     interval_days = 1
                 elif current_review_count == 1:
                     interval_days = 3
+                elif current_review_count == 2:
+                    interval_days = 7
                 else:
-                    # Adjust based on success rate and difficulty rating
-                    base_interval = 7 * (1.3 ** (current_review_count - 2))
-                    difficulty_modifier = 1.0
+                    # Progressive intervals based on performance
+                    base_interval = min(90, 14 * (1.3 ** (current_review_count - 3)))
                     
+                    # Adjust for difficulty rating and card difficulty
+                    difficulty_modifier = 1.0
                     if difficulty_rating:
-                        # 1=very easy (1.5x), 2=easy (1.2x), 3=normal (1.0x), 4=hard (0.8x), 5=very hard (0.6x)
-                        modifiers = {1: 1.5, 2: 1.2, 3: 1.0, 4: 0.8, 5: 0.6}
+                        modifiers = {1: 1.8, 2: 1.3, 3: 1.0, 4: 0.7, 5: 0.5}
                         difficulty_modifier = modifiers.get(difficulty_rating, 1.0)
                     
-                    interval_days = min(90, int(base_interval * new_success_rate * difficulty_modifier))
+                    # Adjust for card inherent difficulty
+                    card_modifier = {"easy": 1.2, "medium": 1.0, "hard": 0.8}.get(card_difficulty, 1.0)
+                    
+                    interval_days = max(1, int(base_interval * new_success_rate * difficulty_modifier * card_modifier))
             else:
-                interval_days = 1  # Review again tomorrow if incorrect
+                # Incorrect answer: shorter intervals based on previous performance
+                if new_success_rate < 0.3:
+                    interval_days = 1  # Review tomorrow
+                elif new_success_rate < 0.6:
+                    interval_days = 2  # Review in 2 days
+                else:
+                    interval_days = 3  # Review in 3 days
             
             next_review = datetime.now() + timedelta(days=interval_days)
             
-            # Determine new status
-            if new_success_rate >= 0.85 and current_review_count >= 2:
+            # Determine new status based on performance
+            if new_success_rate >= 0.9 and current_review_count >= 3:
                 new_status = "known"
-            elif current_review_count >= 0:
+            elif new_success_rate >= 0.7 and current_review_count >= 1:
                 new_status = "learning"
+            elif current_review_count >= 0:
+                new_status = "learning" if correct else "new"
             else:
                 new_status = "new"
             
@@ -482,6 +595,12 @@ def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int 
                 WHERE id = %s
             """, (datetime.now(), new_success_rate, new_status, next_review, card_id))
             
+            # Record in study sessions table
+            cursor.execute("""
+                INSERT INTO study_sessions (session_id, card_id, correct, difficulty_rating, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}", card_id, correct, difficulty_rating, datetime.now()))
+            
             store.pg_conn.commit()
         
         store.close()
@@ -494,7 +613,8 @@ def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int 
             "new_status": new_status,
             "success_rate": round(new_success_rate, 3),
             "next_review": next_review.isoformat(),
-            "days_until_next_review": interval_days
+            "days_until_next_review": interval_days,
+            "total_reviews": current_review_count + 1
         }, indent=2)
         
     except Exception as e:
@@ -506,12 +626,7 @@ def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int 
 
 @tool
 def get_study_statistics() -> str:
-    """
-    Get comprehensive study statistics and learning analytics.
-    
-    Returns:
-        JSON string with detailed study statistics, progress tracking, and recommendations
-    """
+    """Get comprehensive study statistics with news-focused analytics."""
     try:
         store = VectorStore()
         with store.pg_conn.cursor() as cursor:
@@ -524,17 +639,33 @@ def get_study_statistics() -> str:
                     COUNT(CASE WHEN status = 'new' THEN 1 END) as new,
                     AVG(review_count) as avg_reviews,
                     AVG(success_rate) as avg_success_rate,
-                    COUNT(CASE WHEN next_review IS NOT NULL AND next_review <= %s THEN 1 END) as due_today
+                    COUNT(CASE WHEN next_review IS NOT NULL AND next_review <= %s THEN 1 END) as due_today,
+                    COUNT(CASE WHEN source_type = 'recent_news' THEN 1 END) as news_cards
                 FROM flashcards
             """, (datetime.now(),))
             overall = cursor.fetchone()
+            
+            # News-specific statistics
+            cursor.execute("""
+                SELECT 
+                    DATE(news_date) as news_day,
+                    COUNT(*) as cards_count,
+                    AVG(success_rate) as avg_performance
+                FROM flashcards 
+                WHERE news_date IS NOT NULL AND news_date >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY DATE(news_date)
+                ORDER BY news_day DESC
+                LIMIT 10
+            """)
+            news_stats = cursor.fetchall()
             
             # Category breakdown
             cursor.execute("""
                 SELECT category, 
                        COUNT(*) as total_count, 
                        COUNT(CASE WHEN status = 'known' THEN 1 END) as mastered_count,
-                       AVG(success_rate) as avg_success_rate
+                       AVG(success_rate) as avg_success_rate,
+                       AVG(review_count) as avg_reviews
                 FROM flashcards 
                 GROUP BY category 
                 HAVING COUNT(*) > 0
@@ -550,47 +681,47 @@ def get_study_statistics() -> str:
             """)
             study_streak = cursor.fetchone()[0] or 0
             
-            # Recent performance (last 7 days)
+            # Recent performance trends
             cursor.execute("""
                 SELECT 
-                    DATE(last_reviewed) as review_date,
+                    DATE(created_at) as session_date,
                     COUNT(*) as cards_reviewed,
-                    AVG(success_rate) as daily_success_rate
-                FROM flashcards 
-                WHERE last_reviewed >= CURRENT_DATE - INTERVAL '7 days'
-                GROUP BY DATE(last_reviewed)
-                ORDER BY review_date DESC
+                    COUNT(CASE WHEN correct THEN 1 END) as correct_answers,
+                    AVG(CASE WHEN difficulty_rating IS NOT NULL THEN difficulty_rating END) as avg_difficulty_rating
+                FROM study_sessions 
+                WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY DATE(created_at)
+                ORDER BY session_date DESC
             """)
-            recent_performance = cursor.fetchall()
-            
-            # Cards needing attention (low success rate)
-            cursor.execute("""
-                SELECT id, category, question, success_rate, review_count
-                FROM flashcards 
-                WHERE success_rate < 0.6 AND review_count >= 2
-                ORDER BY success_rate ASC
-                LIMIT 5
-            """)
-            struggling_cards = cursor.fetchall()
+            recent_sessions = cursor.fetchall()
         
         store.close()
         
+        # Calculate additional metrics
+        mastery_rate = (overall[1] / overall[0] * 100) if overall[0] > 0 else 0
+        avg_success = float(overall[5]) if overall[5] else 0
+        news_card_percentage = (overall[7] / overall[0] * 100) if overall[0] > 0 else 0
+        
         # Generate recommendations
         recommendations = []
-        if overall[6] > 0:  # due_today > 0
+        if overall[6] > 0:
             recommendations.append(f"You have {overall[6]} cards due for review today!")
         
-        if overall[3] > 10:  # new > 10
-            recommendations.append(f"You have {overall[3]} new cards to learn. Consider starting with 5-10 cards per session.")
+        if overall[3] > 15:
+            recommendations.append(f"You have {overall[3]} new cards. Consider studying 10-15 cards per session for best retention.")
         
-        avg_success = float(overall[5]) if overall[5] else 0
         if avg_success < 0.7:
-            recommendations.append("Your overall success rate is below 70%. Focus on reviewing cards more frequently.")
+            recommendations.append("Your success rate is below 70%. Try reviewing cards more frequently or focusing on difficult topics.")
+        
+        if news_card_percentage > 50:
+            recommendations.append("Great focus on current events! Your news knowledge is up-to-date.")
+        elif overall[7] == 0:
+            recommendations.append("Consider adding some current events flashcards to stay informed about recent developments.")
         
         if study_streak == 0:
-            recommendations.append("Start your study streak today! Even 5 minutes of daily practice helps.")
-        elif study_streak < 7:
-            recommendations.append(f"Great! You've studied {study_streak} days this month. Try to build a daily habit.")
+            recommendations.append("Start your study streak today! Consistent daily practice improves retention.")
+        elif study_streak >= 7:
+            recommendations.append(f"Excellent! You've studied {study_streak} days this month. Keep up the great habit!")
         
         result = {
             "success": True,
@@ -601,7 +732,10 @@ def get_study_statistics() -> str:
                 "new": overall[3],
                 "average_reviews": round(float(overall[4]) if overall[4] else 0, 2),
                 "average_success_rate": round(avg_success, 3),
-                "due_today": overall[6]
+                "due_today": overall[6],
+                "news_cards": overall[7],
+                "mastery_rate": round(mastery_rate, 1),
+                "news_card_percentage": round(news_card_percentage, 1)
             },
             "categories": [
                 {
@@ -609,28 +743,29 @@ def get_study_statistics() -> str:
                     "total": cat[1],
                     "mastered": cat[2],
                     "mastery_rate": round(cat[2] / cat[1] * 100, 1) if cat[1] > 0 else 0,
-                    "avg_success_rate": round(float(cat[3]) if cat[3] else 0, 3)
+                    "avg_success_rate": round(float(cat[3]) if cat[3] else 0, 3),
+                    "avg_reviews": round(float(cat[4]) if cat[4] else 0, 1)
                 }
                 for cat in categories
             ],
-            "study_streak_days": study_streak,
-            "recent_performance": [
+            "news_statistics": [
                 {
-                    "date": str(perf[0]),
-                    "cards_reviewed": perf[1],
-                    "success_rate": round(float(perf[2]) if perf[2] else 0, 3)
+                    "date": str(news[0]),
+                    "cards_created": news[1],
+                    "avg_performance": round(float(news[2]) if news[2] else 0, 3)
                 }
-                for perf in recent_performance
+                for news in news_stats
             ],
-            "struggling_cards": [
+            "study_streak_days": study_streak,
+            "recent_sessions": [
                 {
-                    "id": card[0],
-                    "category": card[1],
-                    "question": card[2][:100] + "..." if len(card[2]) > 100 else card[2],
-                    "success_rate": round(float(card[3]) if card[3] else 0, 3),
-                    "review_count": card[4]
+                    "date": str(session[0]),
+                    "cards_reviewed": session[1],
+                    "correct_answers": session[2],
+                    "accuracy": round(session[2] / session[1] * 100, 1) if session[1] > 0 else 0,
+                    "avg_difficulty_rating": round(float(session[3]) if session[3] else 0, 1)
                 }
-                for card in struggling_cards
+                for session in recent_sessions
             ],
             "recommendations": recommendations
         }
@@ -644,12 +779,11 @@ def get_study_statistics() -> str:
             "error": f"Statistics retrieval failed: {str(e)}"
         })
 
-# Updated tool registry with flashcard tools
+# Updated tool registry
 TOOLS = [
     fetch_gnews, 
     search_articles, 
     query_knowledge_graph, 
-    search_entity_relationships,
     generate_flashcards_from_content,
     get_flashcards_for_study,
     record_flashcard_review,
@@ -674,23 +808,36 @@ def agent_node(state: ChatState) -> ChatState:
     """Main agent node that processes messages and generates responses."""
     llm = create_llm()
     
-    # Add system message if not present
+    # Enhanced system prompt for news flashcards
+    system_prompt = """
+    You are NewsNeuron, an AI assistant specialized in creating educational flashcards from current news and events. 
+    Your primary focus is helping users stay informed about current events through spaced repetition learning.
+
+    Key capabilities:
+    - Generate flashcards from breaking news and current events
+    - Create different types of questions (factual, analytical, contextual)
+    - Track learning progress with spaced repetition algorithms
+    - Provide study analytics and recommendations
+    - Focus on recent developments and their significance
+
+    When generating flashcards:
+    - Prioritize recent, relevant news content
+    - Create varied question types to test different aspects of understanding
+    - Include context and source information
+    - Make questions engaging and educational
+    - Ensure answers are accurate and informative
+
+    Available tools:
+    - fetch_gnews: Get latest news articles
+    - generate_flashcards_from_content: Create flashcards from various sources
+    - get_flashcards_for_study: Retrieve cards for study sessions
+    - record_flashcard_review: Track study progress
+    - get_study_statistics: Provide learning analytics
+    """
+    
     messages = state["messages"]
     if not messages or not any(msg.type == "system" for msg in messages):
-        system_msg = ChatPromptTemplate.from_template(
-            settings.SYSTEM_PROMPT + "\n\n"
-            "Available tools:\n"
-            "- fetch_gnews: Get latest news articles\n"
-            "- search_articles: Search stored articles semantically\n" 
-            "- query_knowledge_graph: Query entity relationships\n"
-            "- search_entity_relationships: Find relationships between specific entities\n"
-            "- generate_flashcards_from_content: Create educational flashcards from various sources\n"
-            "- get_flashcards_for_study: Retrieve flashcards for study sessions\n"
-            "- record_flashcard_review: Record review results and update card status\n"
-            "- get_study_statistics: Get comprehensive learning analytics\n\n"
-            "Use tools when appropriate to provide accurate, up-to-date information and educational support."
-        ).format()
-        messages = [system_msg] + messages
+        messages = [ChatPromptTemplate.from_template(system_prompt).format()] + messages
     
     try:
         response = llm.invoke(messages)
@@ -707,7 +854,6 @@ def tools_node(state: ChatState) -> ChatState:
     if not (hasattr(last_message, "tool_calls") and last_message.tool_calls):
         return {"messages": state["messages"]}
     
-    # Create tool lookup
     tool_map = {tool.name: tool for tool in TOOLS}
     tool_results = []
     
@@ -750,11 +896,9 @@ def create_agent_graph():
     """Create and compile the agent workflow graph."""
     workflow = StateGraph(ChatState)
     
-    # Add nodes
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tools_node)
     
-    # Add edges
     workflow.add_edge(START, "agent")
     workflow.add_conditional_edges("agent", route_decision, {"tools": "tools", "__end__": END})
     workflow.add_edge("tools", "agent")

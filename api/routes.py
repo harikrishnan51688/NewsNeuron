@@ -1,23 +1,23 @@
 """
 FastAPI routes for the AI agent application.
 """
+import asyncio
 import json
 import logging
-import asyncio
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel
 
 from agents.agent import agent_graph
+from core.config import settings
+from core.models import NewsArticle
 from retrieval.fetch_news import fetch_gnews
 from retrieval.vector_store import VectorStore
-from core.models import NewsArticle
-from core.config import settings
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -294,27 +294,106 @@ async def search_stored_articles(query: str, limit: int = 5):
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
     
     
+import uuid
+from datetime import datetime, timedelta
 from typing import Optional
 
+from core.models import (DifficultyLevel, Flashcard, FlashcardFilters,
+                         FlashcardRequest, FlashcardResponse, FlashcardStatus,
+                         ReviewRequest, ReviewResponse, SourceType,
+                         StudySession, StudySessionRequest, StudyStatistics)
 
-class FlashcardRequest(BaseModel):
-    topic: Optional[str] = None   # e.g. "climate change", "politics"
-    source_type: str = "news"
-    count: int = 10
-    difficulty: str = "medium"
+# ============================================================================
+# FLASHCARD ROUTES 
+# ============================================================================
 
-class ReviewRequest(BaseModel):
-    correct: bool
-    difficulty_rating: Optional[int] = None
-@app.post("/flashcards/generate")
-async def generate_flashcards(request: FlashcardRequest) -> Dict[str, Any]:
+
+@app.post("/setup/flashcard-database")
+async def setup_flashcard_database():
+    """
+    Set up the database schema for flashcards (run once).
+    """
+    try:
+        store = VectorStore()
+        
+        with store.pg_conn.cursor() as cursor:
+            # Create flashcards table with proper schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS flashcards (
+                    id VARCHAR(255) PRIMARY KEY,
+                    category VARCHAR(255) NOT NULL,
+                    question TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    difficulty VARCHAR(20) DEFAULT 'medium',
+                    tags JSONB DEFAULT '[]'::jsonb,
+                    status VARCHAR(20) DEFAULT 'new',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_reviewed TIMESTAMP,
+                    review_count INTEGER DEFAULT 0,
+                    success_rate FLOAT DEFAULT 0.0,
+                    next_review TIMESTAMP,
+                    source_type VARCHAR(50),
+                    news_date TIMESTAMP,
+                    source_url TEXT,
+                    context TEXT
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_flashcards_category ON flashcards(category);
+                CREATE INDEX IF NOT EXISTS idx_flashcards_status ON flashcards(status);
+                CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review);
+                CREATE INDEX IF NOT EXISTS idx_flashcards_difficulty ON flashcards(difficulty);
+                CREATE INDEX IF NOT EXISTS idx_flashcards_news_date ON flashcards(news_date);
+                CREATE INDEX IF NOT EXISTS idx_flashcards_source_type ON flashcards(source_type);
+                
+                -- Create study sessions table for analytics
+                CREATE TABLE IF NOT EXISTS study_sessions (
+                    id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(255) NOT NULL,
+                    card_id VARCHAR(255) NOT NULL,
+                    correct BOOLEAN NOT NULL,
+                    response_time_ms INTEGER,
+                    difficulty_rating INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (card_id) REFERENCES flashcards(id)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_study_sessions_card_id ON study_sessions(card_id);
+                CREATE INDEX IF NOT EXISTS idx_study_sessions_session_id ON study_sessions(session_id);
+                CREATE INDEX IF NOT EXISTS idx_study_sessions_created_at ON study_sessions(created_at);
+                
+                -- Create user progress table
+                CREATE TABLE IF NOT EXISTS user_progress (
+                    id SERIAL PRIMARY KEY,
+                    date DATE DEFAULT CURRENT_DATE,
+                    cards_studied INTEGER DEFAULT 0,
+                    correct_answers INTEGER DEFAULT 0,
+                    study_time_minutes INTEGER DEFAULT 0,
+                    UNIQUE(date)
+                );
+            """)
+            
+            store.pg_conn.commit()
+        
+        store.close()
+        
+        return {
+            "success": True,
+            "message": "Flashcard database schema set up successfully with enhanced features"
+        }
+        
+    except Exception as e:
+        logger.error(f"Database setup error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database setup failed: {str(e)}")
+
+@app.post("/flashcards/generate", response_model=FlashcardResponse)
+async def generate_flashcards(request: FlashcardRequest) -> FlashcardResponse:
     """
     Generate flashcards based on topic and source type using the agent's tools.
     """
     try:
         # Use the agent's flashcard generation tool
         from agents.agent import TOOLS
-        
+
         # Find the generate_flashcards_from_content tool
         generate_tool = next(
             (tool for tool in TOOLS if tool.name == "generate_flashcards_from_content"), 
@@ -322,223 +401,468 @@ async def generate_flashcards(request: FlashcardRequest) -> Dict[str, Any]:
         )
         
         if not generate_tool:
-            raise HTTPException(status_code=500, detail="Flashcard generation tool not available")
+            return FlashcardResponse(
+                success=False,
+                error="Flashcard generation tool not available"
+            )
         
         result = generate_tool.invoke({
             "topic": request.topic,
-            "source_type": request.source_type,
-            "difficulty": request.difficulty,
+            "source_type": request.source_type.value,
+            "difficulty": request.difficulty.value,
             "count": request.count
         })
         
         flashcards_data = json.loads(result)
         
         if not flashcards_data.get("success"):
-            raise HTTPException(status_code=400, detail=flashcards_data.get("error", "Generation failed"))
+            return FlashcardResponse(
+                success=False,
+                error=flashcards_data.get("error", "Generation failed")
+            )
         
-        # Store flashcards in database
+        # Store flashcards in database with enhanced fields
         store = VectorStore()
         saved_cards = []
         
         try:
             with store.pg_conn.cursor() as cursor:
-                for card in flashcards_data.get("flashcards", []):
+                for card_data in flashcards_data.get("flashcards", []):
+                    # Create unique ID if not provided
+                    card_id = card_data.get("id", str(uuid.uuid4()))
+                    
                     cursor.execute("""
                         INSERT INTO flashcards 
-                        (id, category, question, answer, difficulty, tags, status, created_at, success_rate)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO NOTHING
+                        (id, category, question, answer, difficulty, tags, status, created_at, 
+                         success_rate, source_type, news_date, source_url, context)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            question = EXCLUDED.question,
+                            answer = EXCLUDED.answer,
+                            tags = EXCLUDED.tags,
+                            context = EXCLUDED.context
                         RETURNING id
                     """, (
-                        card["id"], card["category"], card["question"], card["answer"],
-                        card["difficulty"], json.dumps(card["tags"]), card["status"],
-                        datetime.now(), 0.0
+                        card_id,
+                        card_data.get("category", request.topic or "General"), 
+                        card_data["question"], 
+                        card_data["answer"],
+                        request.difficulty.value, 
+                        json.dumps(card_data.get("tags", [])), 
+                        FlashcardStatus.NEW.value,
+                        datetime.now(), 
+                        0.0,
+                        request.source_type.value,
+                        datetime.now() if request.source_type == SourceType.RECENT_NEWS else None,
+                        card_data.get("source_url"),
+                        card_data.get("context")
                     ))
                     
-                    if cursor.fetchone():  # Card was inserted
-                        saved_cards.append(card)
+                    result_row = cursor.fetchone()
+                    if result_row:  # Card was inserted or updated
+                        flashcard = Flashcard(
+                            id=card_id,
+                            category=card_data.get("category", request.topic or "General"),
+                            question=card_data["question"],
+                            answer=card_data["answer"],
+                            difficulty=request.difficulty,
+                            tags=card_data.get("tags", []),
+                            status=FlashcardStatus.NEW,
+                            source_type=request.source_type,
+                            context=card_data.get("context")
+                        )
+                        saved_cards.append(flashcard)
                 
                 store.pg_conn.commit()
         finally:
             store.close()
         
-        return {
-            "success": True,
-            "flashcards": flashcards_data.get("flashcards", []),
-            "count": len(saved_cards),
-            "message": f"Generated and saved {len(saved_cards)} flashcards for topic: {request.topic}"
-        }
+        return FlashcardResponse(
+            success=True,
+            flashcards=saved_cards,
+            count=len(saved_cards),
+            message=f"Generated and saved {len(saved_cards)} flashcards for topic: {request.topic}",
+            topic=request.topic,
+            source_type=request.source_type
+        )
         
     except Exception as e:
         logger.error(f"Flashcard generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        return FlashcardResponse(
+            success=False,
+            error=f"Generation failed: {str(e)}"
+        )
 
-@app.get("/flashcards")
+@app.get("/flashcards", response_model=FlashcardResponse)
 async def get_flashcards(
     category: Optional[str] = None,
-    difficulty: Optional[str] = None,
-    status: Optional[str] = None,
+    difficulty: Optional[DifficultyLevel] = None,
+    status: Optional[FlashcardStatus] = None,
     due_for_review: bool = False,
-    limit: int = 50
-) -> Dict[str, Any]:
+    limit: int = 50,
+    offset: int = 0,
+    tags: Optional[str] = None  # Comma-separated tags
+) -> FlashcardResponse:
     """
-    Retrieve flashcards with advanced filters using the agent's tools.
+    Retrieve flashcards with advanced filters.
     """
     try:
-        from agents.agent import TOOLS
+        store = VectorStore()
+        conditions = []
+        params = []
         
-        get_tool = next(
-            (tool for tool in TOOLS if tool.name == "get_flashcards_for_study"), 
-            None
+        # Build dynamic query
+        base_query = "SELECT * FROM flashcards WHERE 1=1"
+        
+        if category:
+            conditions.append(" AND LOWER(category) LIKE LOWER(%s)")
+            params.append(f"%{category}%")
+        
+        if difficulty:
+            conditions.append(" AND difficulty = %s")
+            params.append(difficulty.value)
+        
+        if status:
+            conditions.append(" AND status = %s")
+            params.append(status.value)
+        
+        if due_for_review:
+            conditions.append(" AND (next_review IS NULL OR next_review <= %s)")
+            params.append(datetime.now())
+        
+        if tags:
+            tag_list = [tag.strip() for tag in tags.split(",")]
+            conditions.append(" AND tags ?| %s")
+            params.append(tag_list)
+        
+        query = base_query + "".join(conditions) + " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        flashcards = []
+        with store.pg_conn.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                flashcard = Flashcard(
+                    id=row[0],
+                    category=row[1],
+                    question=row[2],
+                    answer=row[3],
+                    difficulty=DifficultyLevel(row[4]),
+                    tags=json.loads(row[5]) if row[5] else [],
+                    status=FlashcardStatus(row[6]),
+                    created_at=row[7],
+                    last_reviewed=row[8],
+                    review_count=row[9],
+                    success_rate=row[10],
+                    next_review=row[11],
+                    source_type=SourceType(row[12]) if row[12] else None,
+                    news_date=row[13],
+                    source_url=row[14],
+                    context=row[15]
+                )
+                flashcards.append(flashcard)
+        
+        store.close()
+        
+        return FlashcardResponse(
+            success=True,
+            flashcards=flashcards,
+            count=len(flashcards),
+            message=f"Retrieved {len(flashcards)} flashcards"
         )
-        
-        if not get_tool:
-            raise HTTPException(status_code=500, detail="Flashcard retrieval tool not available")
-        
-        result = get_tool.invoke({
-            "category": category,
-            "difficulty": difficulty,
-            "status": status,
-            "due_for_review": due_for_review,
-            "limit": limit
-        })
-        
-        data = json.loads(result)
-        
-        if not data.get("success"):
-            raise HTTPException(status_code=500, detail=data.get("error", "Retrieval failed"))
-        
-        return data
         
     except Exception as e:
         logger.error(f"Flashcard retrieval error: {e}")
-        raise HTTPException(status_code=500, detail=f"Retrieval failed: {str(e)}")
+        return FlashcardResponse(
+            success=False,
+            error=f"Retrieval failed: {str(e)}"
+        )
 
-@app.put("/flashcards/{card_id}/review")
-async def review_flashcard(card_id: str, review: ReviewRequest) -> Dict[str, Any]:
+@app.put("/flashcards/{card_id}/review", response_model=ReviewResponse)
+async def review_flashcard(card_id: str, review: ReviewRequest) -> ReviewResponse:
     """
-    Record flashcard review result using the agent's spaced repetition tool.
+    Record flashcard review result with spaced repetition algorithm.
     """
     try:
-        from agents.agent import TOOLS
+        store = VectorStore()
         
-        review_tool = next(
-            (tool for tool in TOOLS if tool.name == "record_flashcard_review"), 
-            None
+        # Get current card data
+        with store.pg_conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM flashcards WHERE id = %s", (card_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return ReviewResponse(
+                    success=False,
+                    error="Flashcard not found"
+                )
+            
+            current_success_rate = row[10] or 0.0
+            review_count = row[9] or 0
+            
+            # Update success rate
+            new_success_rate = ((current_success_rate * review_count) + (1 if review.correct else 0)) / (review_count + 1)
+            
+            # Calculate next review date using spaced repetition
+            next_review = calculate_next_review_date(review.correct, review_count, new_success_rate)
+            
+            # Determine new status
+            new_status = determine_card_status(review.correct, review_count, new_success_rate)
+            
+            # Update flashcard
+            cursor.execute("""
+                UPDATE flashcards 
+                SET last_reviewed = %s, review_count = %s, success_rate = %s, 
+                    next_review = %s, status = %s
+                WHERE id = %s
+            """, (
+                datetime.now(), review_count + 1, new_success_rate, 
+                next_review, new_status.value, card_id
+            ))
+            
+            # Record study session
+            cursor.execute("""
+                INSERT INTO study_sessions 
+                (session_id, card_id, correct, response_time_ms, difficulty_rating)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                f"review_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                card_id, review.correct, review.response_time_ms, review.difficulty_rating
+            ))
+            
+            # Update daily progress
+            cursor.execute("""
+                INSERT INTO user_progress (date, cards_studied, correct_answers)
+                VALUES (CURRENT_DATE, 1, %s)
+                ON CONFLICT (date) DO UPDATE SET
+                    cards_studied = user_progress.cards_studied + 1,
+                    correct_answers = user_progress.correct_answers + %s
+            """, (1 if review.correct else 0, 1 if review.correct else 0))
+            
+            store.pg_conn.commit()
+        
+        store.close()
+        
+        return ReviewResponse(
+            success=True,
+            message="Review recorded successfully",
+            next_review=next_review,
+            new_status=new_status,
+            success_rate=new_success_rate
         )
         
-        if not review_tool:
-            raise HTTPException(status_code=500, detail="Review recording tool not available")
-        
-        result = review_tool.invoke({
-            "card_id": card_id,
-            "correct": review.correct,
-            "difficulty_rating": review.difficulty_rating
-        })
-        
-        data = json.loads(result)
-        
-        if not data.get("success"):
-            if "not found" in data.get("error", "").lower():
-                raise HTTPException(status_code=404, detail="Flashcard not found")
-            raise HTTPException(status_code=500, detail=data.get("error", "Review recording failed"))
-        
-        return data
-        
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Review recording error: {e}")
-        raise HTTPException(status_code=500, detail=f"Review recording failed: {str(e)}")
+        return ReviewResponse(
+            success=False,
+            error=f"Review recording failed: {str(e)}"
+        )
 
-@app.post("/flashcards/study-session")
-async def start_study_session(topics: Optional[List[str]] = None, max_cards: int = 20) -> Dict[str, Any]:
+@app.post("/flashcards/study-session", response_model=StudySession)
+async def start_study_session(request: StudySessionRequest) -> StudySession:
     """
     Start a new study session with optimized card selection.
     """
     try:
-        from agents.agent import TOOLS
+        store = VectorStore()
+        conditions = []
+        params = []
         
-        get_tool = next(
-            (tool for tool in TOOLS if tool.name == "get_flashcards_for_study"), 
-            None
+        # Build query for session cards
+        query = """
+            SELECT * FROM flashcards 
+            WHERE 1=1
+        """
+        
+        if request.topics:
+            topic_conditions = " OR ".join(["LOWER(category) LIKE LOWER(%s)" for _ in request.topics])
+            conditions.append(f" AND ({topic_conditions})")
+            params.extend([f"%{topic}%" for topic in request.topics])
+        
+        if request.difficulty:
+            conditions.append(" AND difficulty = %s")
+            params.append(request.difficulty.value)
+        
+        # Priority: due cards first, then new cards
+        if request.include_due and request.include_new:
+            conditions.append(" AND (next_review IS NULL OR next_review <= %s OR status = 'new')")
+            params.append(datetime.now())
+        elif request.include_due:
+            conditions.append(" AND next_review <= %s")
+            params.append(datetime.now())
+        elif request.include_new:
+            conditions.append(" AND status = 'new'")
+        
+        query += "".join(conditions)
+        query += " ORDER BY CASE WHEN next_review <= %s THEN 0 ELSE 1 END, next_review ASC LIMIT %s"
+        params.extend([datetime.now(), request.max_cards])
+        
+        flashcards = []
+        with store.pg_conn.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                flashcard = Flashcard(
+                    id=row[0],
+                    category=row[1],
+                    question=row[2],
+                    answer=row[3],
+                    difficulty=DifficultyLevel(row[4]),
+                    tags=json.loads(row[5]) if row[5] else [],
+                    status=FlashcardStatus(row[6])
+                )
+                flashcards.append(flashcard)
+        
+        store.close()
+        
+        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        return StudySession(
+            session_id=session_id,
+            cards=flashcards,
+            total_cards=len(flashcards),
+            topics=request.topics or ["all"]
         )
-        
-        if not get_tool:
-            raise HTTPException(status_code=500, detail="Study session tool not available")
-        
-        # Get cards due for review or new cards
-        result = get_tool.invoke({
-            "due_for_review": True,
-            "limit": max_cards
-        })
-        
-        data = json.loads(result)
-        
-        if not data.get("success"):
-            raise HTTPException(status_code=500, detail=data.get("error", "Session creation failed"))
-        
-        flashcards = data.get("flashcards", [])
-        
-        # Filter by topics if specified
-        if topics:
-            flashcards = [
-                card for card in flashcards 
-                if any(topic.lower() in card.get("category", "").lower() for topic in topics)
-            ]
-        
-        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
-        session_cards = []
-        for card in flashcards[:max_cards]:
-            session_cards.append({
-                "id": card["id"],
-                "question": card["question"],
-                "answer": card["answer"],
-                "difficulty": card["difficulty"],
-                "category": card["category"]
-            })
-        
-        return {
-            "session_id": session_id,
-            "cards": session_cards,
-            "total_cards": len(session_cards),
-            "start_time": datetime.now().isoformat(),
-            "topics": topics or ["all"]
-        }
         
     except Exception as e:
         logger.error(f"Study session error: {e}")
         raise HTTPException(status_code=500, detail=f"Session creation failed: {str(e)}")
 
-@app.get("/flashcards/stats")
-async def get_study_stats() -> Dict[str, Any]:
+@app.get("/flashcards/stats", response_model=StudyStatistics)
+async def get_study_stats() -> StudyStatistics:
     """
-    Get comprehensive study statistics using the agent's analytics tool.
+    Get comprehensive study statistics.
     """
     try:
-        from agents.agent import TOOLS
+        store = VectorStore()
+        stats = StudyStatistics()
         
-        stats_tool = next(
-            (tool for tool in TOOLS if tool.name == "get_study_statistics"), 
-            None
-        )
+        with store.pg_conn.cursor() as cursor:
+            # Basic card counts
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN next_review <= %s THEN 1 END) as due,
+                    COUNT(CASE WHEN status = 'new' THEN 1 END) as new,
+                    COUNT(CASE WHEN status = 'learning' THEN 1 END) as learning,
+                    COUNT(CASE WHEN status = 'known' THEN 1 END) as known,
+                    AVG(success_rate) as avg_success_rate
+                FROM flashcards
+            """, (datetime.now(),))
+            
+            row = cursor.fetchone()
+            if row:
+                stats.total_cards = row[0] or 0
+                stats.cards_due = row[1] or 0
+                stats.cards_new = row[2] or 0
+                stats.cards_learning = row[3] or 0
+                stats.cards_known = row[4] or 0
+                stats.overall_success_rate = round(row[5] or 0.0, 2)
+            
+            # Today's activity
+            cursor.execute("""
+                SELECT cards_studied, correct_answers 
+                FROM user_progress 
+                WHERE date = CURRENT_DATE
+            """)
+            
+            today_row = cursor.fetchone()
+            if today_row:
+                stats.cards_studied_today = today_row[0] or 0
+            
+            # Category breakdown
+            cursor.execute("""
+                SELECT category, COUNT(*) 
+                FROM flashcards 
+                GROUP BY category 
+                ORDER BY COUNT(*) DESC
+            """)
+            
+            for cat_row in cursor.fetchall():
+                stats.categories[cat_row[0]] = cat_row[1]
+            
+            # Recent activity (last 7 days)
+            cursor.execute("""
+                SELECT date, cards_studied, correct_answers
+                FROM user_progress 
+                WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+                ORDER BY date DESC
+            """)
+            
+            for activity_row in cursor.fetchall():
+                stats.recent_activity.append({
+                    "date": str(activity_row[0]),
+                    "cards_studied": activity_row[1],
+                    "correct_answers": activity_row[2],
+                    "accuracy": round((activity_row[2] / activity_row[1]) * 100, 1) if activity_row[1] > 0 else 0
+                })
         
-        if not stats_tool:
-            raise HTTPException(status_code=500, detail="Statistics tool not available")
-        
-        result = stats_tool.invoke({})
-        data = json.loads(result)
-        
-        if not data.get("success"):
-            raise HTTPException(status_code=500, detail=data.get("error", "Statistics retrieval failed"))
-        
-        return data
+        store.close()
+        return stats
         
     except Exception as e:
         logger.error(f"Stats retrieval error: {e}")
         raise HTTPException(status_code=500, detail=f"Statistics failed: {str(e)}")
 
+@app.delete("/flashcards/{card_id}")
+async def delete_flashcard(card_id: str):
+    """Delete a flashcard."""
+    try:
+        store = VectorStore()
+        
+        with store.pg_conn.cursor() as cursor:
+            cursor.execute("DELETE FROM flashcards WHERE id = %s", (card_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Flashcard not found")
+            store.pg_conn.commit()
+        
+        store.close()
+        return {"success": True, "message": "Flashcard deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete error: {e}")
+        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def calculate_next_review_date(correct: bool, review_count: int, success_rate: float) -> datetime:
+    """Calculate next review date using spaced repetition algorithm."""
+    base_interval = 1  # days
+    
+    if correct:
+        # Successful review - increase interval
+        if review_count == 0:
+            interval = 1
+        elif review_count == 1:
+            interval = 3
+        else:
+            # SM-2 inspired algorithm
+            ease_factor = 2.5 + (success_rate - 0.8) * 0.5
+            ease_factor = max(1.3, min(2.5, ease_factor))
+            interval = max(1, int(base_interval * (ease_factor ** review_count)))
+    else:
+        # Failed review - reset to shorter interval
+        interval = max(1, review_count // 3)
+    
+    return datetime.now() + timedelta(days=interval)
+
+def determine_card_status(correct: bool, review_count: int, success_rate: float) -> FlashcardStatus:
+    """Determine card status based on performance."""
+    if review_count < 2:
+        return FlashcardStatus.NEW
+    elif success_rate >= 0.8 and review_count >= 5:
+        return FlashcardStatus.KNOWN
+    elif success_rate >= 0.6:
+        return FlashcardStatus.LEARNING
+    else:
+        return FlashcardStatus.REVIEW
 # ============================================================================
 # STREAMING FUNCTIONS
 # ============================================================================
@@ -613,53 +937,6 @@ async def get_complete_response(messages: List) -> str:
         logger.error(f"Complete response error: {e}")
         return f"Error: {str(e)}"
 
-# ============================================================================
-# DATABASE SETUP ENDPOINT
-# ============================================================================
-
-@app.post("/setup/flashcard-database")
-async def setup_flashcard_database():
-    """
-    Set up the database schema for flashcards (run once).
-    """
-    try:
-        store = VectorStore()
-        
-        with store.pg_conn.cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS flashcards (
-                    id VARCHAR(255) PRIMARY KEY,
-                    category VARCHAR(255) NOT NULL,
-                    question TEXT NOT NULL,
-                    answer TEXT NOT NULL,
-                    difficulty VARCHAR(20) DEFAULT 'medium',
-                    tags JSONB DEFAULT '[]',
-                    status VARCHAR(20) DEFAULT 'new',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_reviewed TIMESTAMP,
-                    review_count INTEGER DEFAULT 0,
-                    success_rate FLOAT DEFAULT 0.0,
-                    next_review TIMESTAMP
-                );
-                
-                CREATE INDEX IF NOT EXISTS idx_flashcards_category ON flashcards(category);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_status ON flashcards(status);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_difficulty ON flashcards(difficulty);
-            """)
-            
-            store.pg_conn.commit()
-        
-        store.close()
-        
-        return {
-            "success": True,
-            "message": "Flashcard database schema set up successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Database setup error: {e}")
-        raise HTTPException(status_code=500, detail=f"Database setup failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
