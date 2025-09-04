@@ -560,59 +560,61 @@ export default {
     }
 
     // API integration
-    const generateNewsCards = async () => {
-      loading.value = true
-      try {
-        const response = await fetch('http://localhost:8000/flashcards/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            topic: selectedTopic.value,
-            source_type: sourceType.value,
-            count: 10,
-            difficulty: settings.value.defaultDifficulty
-          })
-        })
-        
-        if (!response.ok) {
-          throw new Error('Failed to generate flashcards')
-        }
-        
-        const data = await response.json()
-        
-        if (data.success) {
-          flashcards.value = [...flashcards.value, ...data.flashcards]
-          updateStats()
-          alert(`Generated ${data.flashcards.length} flashcards about ${selectedTopic.value}!`)
-        } else {
-          throw new Error(data.error || 'Generation failed')
-        }
-        
-      } catch (error) {
-        console.error('Failed to generate cards:', error)
-        alert('Failed to generate flashcards. Please try again.')
-      } finally {
-        loading.value = false
-      }
+   const generateNewsCards = async () => {
+  loading.value = true;
+  try {
+    const response = await fetch('http://localhost:8000/flashcards/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        topic: selectedTopic.value,
+        source_type: sourceType.value,
+        count: 10,
+        difficulty: settings.value.defaultDifficulty
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate flashcards');
     }
 
+    const data = await response.json();
+    console.log("API Response:", data);
+
+    // ✅ Correct condition based on backend response
+    if (data.flashcards && data.flashcards.length > 0) {
+      flashcards.value = [...flashcards.value, ...data.flashcards];
+      updateStats();
+      alert(`✅ Generated ${data.flashcards.length} flashcards about ${selectedTopic.value}!`);
+    } else {
+      alert('⚠️ No flashcards generated. Try again.');
+    }
+
+  } catch (error) {
+    console.error('Failed to generate cards:', error);
+    alert('❌ Failed to generate flashcards. Please try again.');
+  } finally {
+    loading.value = false;
+  }
+};
+
     const recordReview = async (cardId, correct) => {
-      try {
-        await fetch('http://localhost:8000/flashcards/${cardId}/review', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            correct: correct,
-            difficulty_rating: correct ? 3 : 4
-          })
-        })
-      } catch (error) {
-        console.error('Failed to record review:', error)
-      }
+  try {
+  await fetch(`http://localhost:8000/flashcards/review/${cardId}`, {
+    method: 'PUT',   // Change PUT → POST because backend expects POST
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      correct: correct,
+      difficulty_rating: correct ? 3 : 4
+    })
+  });
+} catch (error) {
+  console.error("Error reviewing flashcard:", error);
+} 
     }
 
     const fetchRecentNews = async () => {

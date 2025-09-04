@@ -512,272 +512,62 @@ def query_knowledge_graph(question: str) -> str:
         logger.error(f"Knowledge graph query error: {e}")
         return json.dumps({"error": f"Knowledge graph query failed: {str(e)}"})
 
-@tool
-def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int = None) -> str:
-    """Record flashcard review with enhanced spaced repetition algorithm."""
-    try:
-        store = VectorStore()
-        with store.pg_conn.cursor() as cursor:
-            # Get current flashcard data
-            cursor.execute("""
-                SELECT review_count, success_rate, status, difficulty 
-                FROM flashcards WHERE id = %s
-            """, (card_id,))
-            row = cursor.fetchone()
-            
-            if not row:
-                return json.dumps({
-                    "success": False,
-                    "error": "Flashcard not found"
-                })
-            
-            current_review_count, current_success_rate, current_status, card_difficulty = row
-            current_review_count = current_review_count or 0
-            current_success_rate = float(current_success_rate) if current_success_rate else 0.0
-            
-            # Calculate new success rate
-            new_success_rate = (
-                (current_success_rate * current_review_count + (1.0 if correct else 0.0)) 
-                / (current_review_count + 1)
-            )
-            
-            # Enhanced spaced repetition algorithm
-            if correct:
-                if current_review_count == 0:
-                    interval_days = 1
-                elif current_review_count == 1:
-                    interval_days = 3
-                elif current_review_count == 2:
-                    interval_days = 7
-                else:
-                    # Progressive intervals based on performance
-                    base_interval = min(90, 14 * (1.3 ** (current_review_count - 3)))
-                    
-                    # Adjust for difficulty rating and card difficulty
-                    difficulty_modifier = 1.0
-                    if difficulty_rating:
-                        modifiers = {1: 1.8, 2: 1.3, 3: 1.0, 4: 0.7, 5: 0.5}
-                        difficulty_modifier = modifiers.get(difficulty_rating, 1.0)
-                    
-                    # Adjust for card inherent difficulty
-                    card_modifier = {"easy": 1.2, "medium": 1.0, "hard": 0.8}.get(card_difficulty, 1.0)
-                    
-                    interval_days = max(1, int(base_interval * new_success_rate * difficulty_modifier * card_modifier))
-            else:
-                # Incorrect answer: shorter intervals based on previous performance
-                if new_success_rate < 0.3:
-                    interval_days = 1  # Review tomorrow
-                elif new_success_rate < 0.6:
-                    interval_days = 2  # Review in 2 days
-                else:
-                    interval_days = 3  # Review in 3 days
-            
-            next_review = datetime.now() + timedelta(days=interval_days)
-            
-            # Determine new status based on performance
-            if new_success_rate >= 0.9 and current_review_count >= 3:
-                new_status = "known"
-            elif new_success_rate >= 0.7 and current_review_count >= 1:
-                new_status = "learning"
-            elif current_review_count >= 0:
-                new_status = "learning" if correct else "new"
-            else:
-                new_status = "new"
-            
-            # Update flashcard
-            cursor.execute("""
-                UPDATE flashcards 
-                SET last_reviewed = %s, 
-                    review_count = review_count + 1,
-                    success_rate = %s,
-                    status = %s,
-                    next_review = %s
-                WHERE id = %s
-            """, (datetime.now(), new_success_rate, new_status, next_review, card_id))
-            
-            # Record in study sessions table
-            cursor.execute("""
-                INSERT INTO study_sessions (session_id, card_id, correct, difficulty_rating, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}", card_id, correct, difficulty_rating, datetime.now()))
-            
-            store.pg_conn.commit()
-        
-        store.close()
-        
-        return json.dumps({
-            "success": True,
-            "message": "Review recorded successfully",
-            "card_id": card_id,
-            "was_correct": correct,
-            "new_status": new_status,
-            "success_rate": round(new_success_rate, 3),
-            "next_review": next_review.isoformat(),
-            "days_until_next_review": interval_days,
-            "total_reviews": current_review_count + 1
-        }, indent=2)
-        
-    except Exception as e:
-        logger.error(f"Review recording error: {e}")
-        return json.dumps({
-            "success": False,
-            "error": f"Review recording failed: {str(e)}"
-        })
+from services.flashcard_service import FlashcardsService
+from core.models import FlashcardRequest, SourceType
+
+service = FlashcardsService()
 
 @tool
-def get_study_statistics() -> str:
-    """Get comprehensive study statistics with news-focused analytics."""
+def generate_flashcards_from_content(topic: str, source_type: str = "recent_news",
+                                     difficulty: str = "medium", count: int = 10) -> str:
+    """
+    Generate, save, and return flashcards from news, knowledge base, or entities.
+    """
     try:
-        store = VectorStore()
-        with store.pg_conn.cursor() as cursor:
-            # Overall statistics
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN status = 'known' THEN 1 END) as known,
-                    COUNT(CASE WHEN status = 'learning' THEN 1 END) as learning,
-                    COUNT(CASE WHEN status = 'new' THEN 1 END) as new,
-                    AVG(review_count) as avg_reviews,
-                    AVG(success_rate) as avg_success_rate,
-                    COUNT(CASE WHEN next_review IS NOT NULL AND next_review <= %s THEN 1 END) as due_today,
-                    COUNT(CASE WHEN source_type = 'recent_news' THEN 1 END) as news_cards
-                FROM flashcards
-            """, (datetime.now(),))
-            overall = cursor.fetchone()
-            
-            # News-specific statistics
-            cursor.execute("""
-                SELECT 
-                    DATE(news_date) as news_day,
-                    COUNT(*) as cards_count,
-                    AVG(success_rate) as avg_performance
-                FROM flashcards 
-                WHERE news_date IS NOT NULL AND news_date >= CURRENT_DATE - INTERVAL '30 days'
-                GROUP BY DATE(news_date)
-                ORDER BY news_day DESC
-                LIMIT 10
-            """)
-            news_stats = cursor.fetchall()
-            
-            # Category breakdown
-            cursor.execute("""
-                SELECT category, 
-                       COUNT(*) as total_count, 
-                       COUNT(CASE WHEN status = 'known' THEN 1 END) as mastered_count,
-                       AVG(success_rate) as avg_success_rate,
-                       AVG(review_count) as avg_reviews
-                FROM flashcards 
-                GROUP BY category 
-                HAVING COUNT(*) > 0
-                ORDER BY total_count DESC
-            """)
-            categories = cursor.fetchall()
-            
-            # Study streak calculation
-            cursor.execute("""
-                SELECT COUNT(DISTINCT DATE(last_reviewed)) as study_days
-                FROM flashcards 
-                WHERE last_reviewed >= CURRENT_DATE - INTERVAL '30 days'
-            """)
-            study_streak = cursor.fetchone()[0] or 0
-            
-            # Recent performance trends
-            cursor.execute("""
-                SELECT 
-                    DATE(created_at) as session_date,
-                    COUNT(*) as cards_reviewed,
-                    COUNT(CASE WHEN correct THEN 1 END) as correct_answers,
-                    AVG(CASE WHEN difficulty_rating IS NOT NULL THEN difficulty_rating END) as avg_difficulty_rating
-                FROM study_sessions 
-                WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-                GROUP BY DATE(created_at)
-                ORDER BY session_date DESC
-            """)
-            recent_sessions = cursor.fetchall()
-        
-        store.close()
-        
-        # Calculate additional metrics
-        mastery_rate = (overall[1] / overall[0] * 100) if overall[0] > 0 else 0
-        avg_success = float(overall[5]) if overall[5] else 0
-        news_card_percentage = (overall[7] / overall[0] * 100) if overall[0] > 0 else 0
-        
-        # Generate recommendations
-        recommendations = []
-        if overall[6] > 0:
-            recommendations.append(f"You have {overall[6]} cards due for review today!")
-        
-        if overall[3] > 15:
-            recommendations.append(f"You have {overall[3]} new cards. Consider studying 10-15 cards per session for best retention.")
-        
-        if avg_success < 0.7:
-            recommendations.append("Your success rate is below 70%. Try reviewing cards more frequently or focusing on difficult topics.")
-        
-        if news_card_percentage > 50:
-            recommendations.append("Great focus on current events! Your news knowledge is up-to-date.")
-        elif overall[7] == 0:
-            recommendations.append("Consider adding some current events flashcards to stay informed about recent developments.")
-        
-        if study_streak == 0:
-            recommendations.append("Start your study streak today! Consistent daily practice improves retention.")
-        elif study_streak >= 7:
-            recommendations.append(f"Excellent! You've studied {study_streak} days this month. Keep up the great habit!")
-        
-        result = {
-            "success": True,
-            "overall_stats": {
-                "total_cards": overall[0],
-                "known": overall[1],
-                "learning": overall[2],
-                "new": overall[3],
-                "average_reviews": round(float(overall[4]) if overall[4] else 0, 2),
-                "average_success_rate": round(avg_success, 3),
-                "due_today": overall[6],
-                "news_cards": overall[7],
-                "mastery_rate": round(mastery_rate, 1),
-                "news_card_percentage": round(news_card_percentage, 1)
-            },
-            "categories": [
-                {
-                    "category": cat[0],
-                    "total": cat[1],
-                    "mastered": cat[2],
-                    "mastery_rate": round(cat[2] / cat[1] * 100, 1) if cat[1] > 0 else 0,
-                    "avg_success_rate": round(float(cat[3]) if cat[3] else 0, 3),
-                    "avg_reviews": round(float(cat[4]) if cat[4] else 0, 1)
-                }
-                for cat in categories
-            ],
-            "news_statistics": [
-                {
-                    "date": str(news[0]),
-                    "cards_created": news[1],
-                    "avg_performance": round(float(news[2]) if news[2] else 0, 3)
-                }
-                for news in news_stats
-            ],
-            "study_streak_days": study_streak,
-            "recent_sessions": [
-                {
-                    "date": str(session[0]),
-                    "cards_reviewed": session[1],
-                    "correct_answers": session[2],
-                    "accuracy": round(session[2] / session[1] * 100, 1) if session[1] > 0 else 0,
-                    "avg_difficulty_rating": round(float(session[3]) if session[3] else 0, 1)
-                }
-                for session in recent_sessions
-            ],
-            "recommendations": recommendations
-        }
-        
-        return json.dumps(result, indent=2)
-        
-    except Exception as e:
-        logger.error(f"Statistics error: {e}")
+        # Use the existing generation logic to get flashcards
+        request = FlashcardRequest(
+            topic=topic,
+            source_type=SourceType(source_type),
+            difficulty=difficulty,
+            count=count
+        )
+        # Generate flashcards from news/entities/KB
+        flashcards = json.loads(generate_flashcards_from_news(topic, source_type, difficulty, count))["flashcards"]
+
+        # Save them into DB
+        service.save_flashcards(flashcards, request)
+
         return json.dumps({
-            "success": False,
-            "error": f"Statistics retrieval failed: {str(e)}"
+            "success": True,
+            "flashcards": flashcards,
+            "count": len(flashcards)
         })
+
+    except Exception as e:
+        logger.error(f"Error generating flashcards: {e}")
+        return json.dumps({"success": False, "error": str(e)})
+@tool
+def record_flashcard_review(card_id: str, correct: bool, difficulty_rating: int = None) -> str:
+    """
+    Record user review for a specific flashcard and update spaced repetition stats.
+    """
+    try:
+        result = service.record_review(card_id, correct, difficulty_rating)
+        return json.dumps(result)
+    except Exception as e:
+        logger.error(f"Review update failed: {e}")
+        return json.dumps({"success": False, "error": str(e)})
+@tool
+def get_flashcard_stats() -> str:
+    """
+    Get overall flashcard statistics for progress tracking.
+    """
+    try:
+        stats = service.get_flashcard_stats()
+        return json.dumps({"success": True, "stats": stats})
+    except Exception as e:
+        logger.error(f"Error fetching flashcard stats: {e}")
+        return json.dumps({"success": False, "error": str(e)})
 
 # Updated tool registry
 TOOLS = [
@@ -785,9 +575,8 @@ TOOLS = [
     search_articles, 
     query_knowledge_graph, 
     generate_flashcards_from_content,
-    get_flashcards_for_study,
     record_flashcard_review,
-    get_study_statistics
+    get_flashcard_stats
 ]
 
 # ============================================================================
