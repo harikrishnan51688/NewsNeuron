@@ -1,5 +1,8 @@
 <template>
-  <div class="bg-dark-card border border-dark-border rounded-2xl p-6 hover:border-neuron-glow/30 transition-all duration-300 cursor-pointer group">
+  <div 
+    class="bg-dark-card border border-dark-border rounded-2xl p-6 hover:border-neuron-glow/30 transition-all duration-300 cursor-pointer group"
+    @click="openSummary"
+  >
     <!-- Article Image -->
     <div v-if="headline.image" class="relative mb-4">
       <img 
@@ -63,13 +66,23 @@
           </div>
         </div>
         
-        <button
-          @click.stop="openArticle"
-          class="text-neuron-glow hover:text-neuron-glow/80 text-xs font-medium flex items-center space-x-1 transition-colors"
-        >
-          <span>Read more</span>
-          <ExternalLinkIcon class="w-3 h-3" />
-        </button>
+        <div class="flex items-center space-x-2">
+          <button
+            @click.stop="openSummary"
+            class="text-neuron-glow hover:text-neuron-glow/80 text-xs font-medium flex items-center space-x-1 transition-colors"
+          >
+            <span>View Summary</span>
+            <FileTextIcon class="w-3 h-3" />
+          </button>
+          
+          <button
+            @click.stop="openArticle"
+            class="text-text-muted hover:text-neuron-glow text-xs font-medium flex items-center space-x-1 transition-colors"
+          >
+            <span>Read more</span>
+            <ExternalLinkIcon class="w-3 h-3" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -77,7 +90,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { ExternalLinkIcon } from 'lucide-vue-next'
+import { ExternalLinkIcon, FileTextIcon } from 'lucide-vue-next'
 
 // Props
 const props = defineProps({
@@ -86,6 +99,9 @@ const props = defineProps({
     required: true
   }
 })
+
+// Emits
+const emit = defineEmits(['openSummary'])
 
 // Computed properties for credibility display
 const credibilityTier = computed(() => {
@@ -186,6 +202,10 @@ const openArticle = () => {
   if (props.headline.url) {
     window.open(props.headline.url, '_blank', 'noopener,noreferrer')
   }
+}
+
+const openSummary = () => {
+  emit('openSummary', props.headline)
 }
 </script>
 

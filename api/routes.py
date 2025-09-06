@@ -714,7 +714,7 @@ async def get_top_headlines(
     category: str = "general", 
     lang: str = "en", 
     country: str = "us", 
-    max_articles: int = 8
+    max_articles: int = 4
 ):
     """
     Get top headlines from GNews API.
@@ -1369,6 +1369,299 @@ def _create_story_timeline(articles, entity_name: str) -> List[TimelineEvent]:
         # Sort by date and limit
         events.sort(key=lambda x: x.date)
         return events[:15]
+
+# ============================================================================
+# ARTICLE ANALYSIS ENDPOINTS
+# ============================================================================
+
+class ArticleAnalysisRequest(BaseModel):
+    url: str
+    title: str
+    description: str = ""
+    source: str = ""
+    published_at: str = ""
+
+class ArticleAnalysisResponse(BaseModel):
+    success: bool
+    summary: str = ""
+    credibility_analysis: dict = {}
+    bias_assessment: dict = {}
+    llm_interpretation: str = ""
+    related_articles: List[dict] = []
+    error: str = ""
+
+@app.post("/api/v1/articles/analyze")
+async def analyze_article(request: ArticleAnalysisRequest) -> ArticleAnalysisResponse:
+    """
+    Analyze an article for summary, credibility, bias, and interpretation.
+    Also find related articles from other sources.
+    
+    Args:
+        request: Article details for analysis
+        
+    Returns:
+        Comprehensive article analysis including summary, credibility, bias, and related articles
+    """
+    try:
+        # Fetch full article content if possible
+        article_content = await _fetch_article_content(request.url, request.description)
+        
+        # Get credibility analysis for the source
+        credibility_analysis = _calculate_source_credibility(request.source)
+        
+        # Create bias assessment
+        bias_assessment = {
+            "political_leaning": credibility_analysis.get("political_leaning", "center"),
+            "bias_level": _calculate_bias_level(credibility_analysis),
+            "reliability_score": credibility_analysis.get("score", 0.5),
+            "tier": credibility_analysis.get("tier", "unrated")
+        }
+        
+        # Use LLM agent to generate comprehensive analysis
+        from agents.agent import agent_graph
+        from langchain_core.messages import HumanMessage
+        
+        analysis_prompt = f"""Analyze this news article and provide a clear, concise response in plain text (no markdown formatting).
+
+Article Information:
+Title: {request.title}
+Source: {request.source}
+Content: {article_content}
+
+Please provide:
+
+1. SUMMARY: A balanced, objective summary in 120-150 words that captures the key facts and main points of the article.
+
+2. INTERPRETATION: In 60-80 words, explain the significance, implications, or broader context that readers should understand about this story.
+
+Use clear, direct language. Do not use markdown formatting, bullet points, or special characters. Separate the summary and interpretation sections clearly."""
+        
+        # Invoke the agent
+        agent_response = await agent_graph.ainvoke({
+            "messages": [HumanMessage(content=analysis_prompt)]
+        })
+        
+        llm_response = agent_response["messages"][-1].content
+        
+        # Clean and extract summary and interpretation
+        summary, interpretation = _parse_llm_response(llm_response)
+        
+        # Find related articles with relevance filtering
+        related_articles = await _find_related_articles(request.title, request.source, min_relevance=0.4)
+        
+        return ArticleAnalysisResponse(
+            success=True,
+            summary=summary,
+            credibility_analysis=credibility_analysis,
+            bias_assessment=bias_assessment,
+            llm_interpretation=interpretation,
+            related_articles=related_articles
+        )
+        
+    except Exception as e:
+        logger.error(f"Article analysis error: {e}")
+        return ArticleAnalysisResponse(
+            success=False,
+            error=f"Failed to analyze article: {str(e)}"
+        )
+
+async def _find_related_articles(title: str, exclude_source: str, max_articles: int = 5, min_relevance: float = 0.4) -> List[dict]:
+    """
+    Find related articles from different sources using keyword extraction and search.
+    Only return articles above the minimum relevance threshold.
+    """
+    try:
+        # Extract key terms from the title for search
+        import re
+        # Remove common words and extract meaningful terms
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'will', 'be', 'have', 'has', 'had'}
+        words = re.findall(r'\b\w+\b', title.lower())
+        keywords = [word for word in words if word not in stop_words and len(word) > 3]
+        
+        search_query = ' '.join(keywords[:5])  # Use top 5 keywords
+        
+        # Search for articles in vector store
+        vs = VectorStore()
+        embedding = vs.embedding_generator.generate_embeddings(search_query)
+        results = vs.pinecone_index.query(
+            vector=embedding, 
+            top_k=max_articles * 3,  # Get more to filter
+            include_metadata=True
+        )
+        
+        related_articles = []
+        with vs.pg_conn.cursor() as cursor:
+            for match in results["matches"]:
+                if len(related_articles) >= max_articles:
+                    break
+                
+                # Only include articles above minimum relevance threshold
+                if match["score"] < min_relevance:
+                    continue
+                    
+                article_id = match["metadata"]["article_id"]
+                cursor.execute("SELECT * FROM articles WHERE id = %s", (article_id,))
+                row = cursor.fetchone()
+                
+                if row and row[5] != exclude_source:  # Different source
+                    credibility = _calculate_source_credibility(row[5])
+                    article = {
+                        "id": row[0],
+                        "title": row[1],
+                        "summary": row[3] or row[2][:200] + "...",
+                        "url": row[4],
+                        "source": {
+                            "name": row[5],
+                            "credibility": credibility
+                        },
+                        "published_date": str(row[7]),
+                        "similarity_score": round(match["score"], 3)
+                    }
+                    related_articles.append(article)
+        
+        vs.close()
+        return related_articles
+        
+    except Exception as e:
+        logger.error(f"Error finding related articles: {e}")
+        return []
+
+async def _fetch_article_content(url: str, fallback_description: str) -> str:
+    """
+    Attempt to fetch the full article content from the URL.
+    Falls back to description if content fetching fails.
+    """
+    try:
+        import requests
+        
+        # Simple timeout and headers to avoid being blocked
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=20)
+        if response.status_code == 200:
+            try:
+                from bs4 import BeautifulSoup
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Remove script and style elements
+                for script in soup(["script", "style", "nav", "footer", "header"]):
+                    script.decompose()
+                
+                # Try to find article content using common patterns
+                content_selectors = [
+                    'article',
+                    '[role="article"]',
+                    '.article-body',
+                    '.article-content',
+                    '.post-content',
+                    '.entry-content',
+                    '.content',
+                    'main'
+                ]
+                
+                content = ""
+                for selector in content_selectors:
+                    elements = soup.select(selector)
+                    if elements:
+                        content = ' '.join([elem.get_text().strip() for elem in elements])
+                        break
+                
+                # If no specific content found, get all paragraph text
+                if not content:
+                    paragraphs = soup.find_all('p')
+                    content = ' '.join([p.get_text().strip() for p in paragraphs])
+                
+                # Clean and limit content
+                content = ' '.join(content.split())  # Remove extra whitespace
+                if len(content) > 2000:  # Limit content length
+                    content = content[:2000] + "..."
+                
+                return content if content else fallback_description
+                
+            except ImportError:
+                logger.warning("BeautifulSoup not available, using description only")
+                return fallback_description
+            
+    except Exception as e:
+        logger.warning(f"Failed to fetch article content from {url}: {e}")
+    
+    return fallback_description
+
+def _parse_llm_response(llm_response: str) -> tuple[str, str]:
+    """
+    Parse LLM response to extract clean summary and interpretation.
+    Removes markdown formatting and cleans up the text.
+    """
+    # Clean markdown formatting
+    import re
+    
+    # Remove markdown formatting
+    cleaned_response = re.sub(r'\*\*([^*]+)\*\*', r'\1', llm_response)  # Bold
+    cleaned_response = re.sub(r'\*([^*]+)\*', r'\1', cleaned_response)    # Italic
+    cleaned_response = re.sub(r'#+ ', '', cleaned_response)              # Headers
+    cleaned_response = re.sub(r'- ', '', cleaned_response)               # Bullet points
+    cleaned_response = re.sub(r'\n+', ' ', cleaned_response)             # Multiple newlines
+    
+    # Split into summary and interpretation
+    lines = [line.strip() for line in cleaned_response.split('.') if line.strip()]
+    
+    summary_lines = []
+    interpretation_lines = []
+    current_section = "summary"
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for section indicators
+        if any(keyword in line.lower() for keyword in ['interpretation', 'analysis', 'significance', 'implication']):
+            current_section = "interpretation"
+            # Remove the section indicator from the line
+            line = re.sub(r'^(interpretation|analysis|significance|implication)[:\s]*', '', line, flags=re.IGNORECASE)
+            if not line.strip():
+                continue
+        
+        if any(keyword in line.lower() for keyword in ['summary', 'overview']):
+            current_section = "summary"
+            line = re.sub(r'^(summary|overview)[:\s]*', '', line, flags=re.IGNORECASE)
+            if not line.strip():
+                continue
+        
+        # Add to appropriate section
+        if current_section == "summary":
+            summary_lines.append(line)
+        else:
+            interpretation_lines.append(line)
+    
+    # Join and clean up
+    summary = '. '.join(summary_lines).strip()
+    interpretation = '. '.join(interpretation_lines).strip()
+    
+    # Ensure proper sentence endings
+    if summary and not summary.endswith('.'):
+        summary += '.'
+    if interpretation and not interpretation.endswith('.'):
+        interpretation += '.'
+    
+    return summary, interpretation
+
+def _calculate_bias_level(credibility_analysis: dict) -> str:
+    """
+    Calculate bias level based on credibility analysis.
+    """
+    political_leaning = credibility_analysis.get("political_leaning", "center")
+    tier = credibility_analysis.get("tier", "unrated")
+    
+    if political_leaning == "center":
+        return "Low" if tier in ["tier1", "tier2"] else "Moderate"
+    elif political_leaning in ["left", "right"]:
+        return "Moderate" if tier in ["tier1", "tier2"] else "High"
+    else:
+        return "Unknown"
 
 
 if __name__ == "__main__":
