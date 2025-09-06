@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "news-articles"
     PINECONE_ENVIRONMENT: str = os.getenv("PINECONE_ENVIRONMENT")
 
+    GNEWS_API_KEY: str = os.getenv("GNEWS_API_KEY")
+
 
     NEO4J_URI: str = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
     NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
