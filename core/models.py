@@ -97,11 +97,12 @@ class ReviewRequest(BaseModel):
 
 class ReviewResponse(BaseModel):
     success: bool
-    message: str
+    message: Optional[str] = None
     next_review: Optional[datetime] = None
     new_status: Optional[FlashcardStatus] = None
     success_rate: Optional[float] = None
     error: Optional[str] = None
+
 
 class StudySession(BaseModel):
     session_id: str

@@ -310,20 +310,38 @@ from core.models import (DifficultyLevel, Flashcard, FlashcardFilters,
 # ============================================================================
 # FLASHCARD ROUTES 
 # ============================================================================
-
-
 @app.post("/setup/flashcard-database")
 async def setup_flashcard_database():
     """
-    Set up the database schema for flashcards (run once).
+    Bulletproof database setup that handles any existing state.
     """
     try:
         store = VectorStore()
         
         with store.pg_conn.cursor() as cursor:
-            # Create flashcards table with proper schema
+            # Step 1: Check if flashcards table exists at all
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS flashcards (
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'flashcards'
+                );
+            """)
+            
+            table_exists = cursor.fetchone()[0]
+            
+            if table_exists:
+                # Step 2: If table exists, drop it completely to avoid column conflicts
+                print("Found existing flashcards table, dropping for clean recreation...")
+                cursor.execute("DROP TABLE IF EXISTS study_sessions CASCADE")
+                cursor.execute("DROP TABLE IF EXISTS user_progress CASCADE") 
+                cursor.execute("DROP TABLE IF EXISTS flashcards CASCADE")
+                print("Existing tables dropped successfully")
+            
+            # Step 3: Create fresh tables with complete schema
+            print("Creating fresh flashcards table...")
+            cursor.execute("""
+                CREATE TABLE flashcards (
                     id VARCHAR(255) PRIMARY KEY,
                     category VARCHAR(255) NOT NULL,
                     question TEXT NOT NULL,
@@ -341,16 +359,21 @@ async def setup_flashcard_database():
                     source_url TEXT,
                     context TEXT
                 );
-                
-                CREATE INDEX IF NOT EXISTS idx_flashcards_category ON flashcards(category);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_status ON flashcards(status);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_difficulty ON flashcards(difficulty);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_news_date ON flashcards(news_date);
-                CREATE INDEX IF NOT EXISTS idx_flashcards_source_type ON flashcards(source_type);
-                
-                -- Create study sessions table for analytics
-                CREATE TABLE IF NOT EXISTS study_sessions (
+            """)
+            
+            print("Creating indexes...")
+            cursor.execute("""
+                CREATE INDEX idx_flashcards_category ON flashcards(category);
+                CREATE INDEX idx_flashcards_status ON flashcards(status);
+                CREATE INDEX idx_flashcards_next_review ON flashcards(next_review);
+                CREATE INDEX idx_flashcards_difficulty ON flashcards(difficulty);
+                CREATE INDEX idx_flashcards_news_date ON flashcards(news_date);
+                CREATE INDEX idx_flashcards_source_type ON flashcards(source_type);
+            """)
+            
+            print("Creating supporting tables...")
+            cursor.execute("""
+                CREATE TABLE study_sessions (
                     id SERIAL PRIMARY KEY,
                     session_id VARCHAR(255) NOT NULL,
                     card_id VARCHAR(255) NOT NULL,
@@ -358,15 +381,14 @@ async def setup_flashcard_database():
                     response_time_ms INTEGER,
                     difficulty_rating INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (card_id) REFERENCES flashcards(id)
+                    FOREIGN KEY (card_id) REFERENCES flashcards(id) ON DELETE CASCADE
                 );
                 
-                CREATE INDEX IF NOT EXISTS idx_study_sessions_card_id ON study_sessions(card_id);
-                CREATE INDEX IF NOT EXISTS idx_study_sessions_session_id ON study_sessions(session_id);
-                CREATE INDEX IF NOT EXISTS idx_study_sessions_created_at ON study_sessions(created_at);
+                CREATE INDEX idx_study_sessions_card_id ON study_sessions(card_id);
+                CREATE INDEX idx_study_sessions_session_id ON study_sessions(session_id);
+                CREATE INDEX idx_study_sessions_created_at ON study_sessions(created_at);
                 
-                -- Create user progress table
-                CREATE TABLE IF NOT EXISTS user_progress (
+                CREATE TABLE user_progress (
                     id SERIAL PRIMARY KEY,
                     date DATE DEFAULT CURRENT_DATE,
                     cards_studied INTEGER DEFAULT 0,
@@ -376,19 +398,195 @@ async def setup_flashcard_database():
                 );
             """)
             
+            # Step 4: Commit all changes
             store.pg_conn.commit()
+            print("Database setup completed successfully")
         
         store.close()
         
         return {
             "success": True,
-            "message": "Flashcard database schema set up successfully with enhanced features"
+            "message": "Flashcard database schema set up successfully with complete clean schema",
+            "action_taken": "dropped_and_recreated" if table_exists else "created_new"
         }
         
     except Exception as e:
+        print(f"Database setup error: {e}")
         logger.error(f"Database setup error: {e}")
+        
+        # Try to rollback if something went wrong
+        try:
+            store.pg_conn.rollback()
+        except:
+            pass
+            
         raise HTTPException(status_code=500, detail=f"Database setup failed: {str(e)}")
 
+
+# Also create a simple diagnostic endpoint to see what's currently in the database
+@app.get("/setup/check-database")
+async def check_database():
+    """
+    Simple check to see current database state.
+    """
+    try:
+        store = VectorStore()
+        
+        with store.pg_conn.cursor() as cursor:
+            # Check what tables exist
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name;
+            """)
+            
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            result = {
+                "tables_found": tables,
+                "flashcards_table_exists": "flashcards" in tables
+            }
+            
+            # If flashcards table exists, check its columns
+            if "flashcards" in tables:
+                cursor.execute("""
+                    SELECT column_name, data_type, is_nullable, column_default
+                    FROM information_schema.columns 
+                    WHERE table_name = 'flashcards'
+                    ORDER BY ordinal_position;
+                """)
+                
+                result["flashcards_columns"] = [
+                    {
+                        "name": row[0],
+                        "type": row[1], 
+                        "nullable": row[2],
+                        "default": row[3]
+                    }
+                    for row in cursor.fetchall()
+                ]
+                
+                # Check row count
+                cursor.execute("SELECT COUNT(*) FROM flashcards")
+                result["flashcards_row_count"] = cursor.fetchone()[0]
+        
+        store.close()
+        return result
+        
+    except Exception as e:
+        logger.error(f"Database check error: {e}")
+        return {
+            "error": str(e),
+            "tables_found": [],
+            "flashcards_table_exists": False
+        }@app.post("/flashcards/generate", response_model=FlashcardResponse)
+async def generate_flashcards(request: FlashcardRequest) -> FlashcardResponse:
+    """
+    Generate flashcards based on topic and source type using the agent's tools.
+    """
+    try:
+        # Use the agent's flashcard generation tool
+        from agents.agent import TOOLS
+
+        # Find the generate_flashcards_from_content tool
+        generate_tool = next(
+            (tool for tool in TOOLS if tool.name == "generate_flashcards_from_content"), 
+            None
+        )
+        
+        if not generate_tool:
+            return FlashcardResponse(
+                success=False,
+                error="Flashcard generation tool not available"
+            )
+        
+        result = generate_tool.invoke({
+            "topic": request.topic,
+            "source_type": request.source_type.value,
+            "difficulty": request.difficulty.value,
+            "count": request.count
+        })
+        
+        flashcards_data = json.loads(result)
+        
+        if not flashcards_data.get("success"):
+            return FlashcardResponse(
+                success=False,
+                error=flashcards_data.get("error", "Generation failed")
+            )
+        
+        # Store flashcards in database with enhanced fields
+        store = VectorStore()
+        saved_cards = []
+        
+        try:
+            with store.pg_conn.cursor() as cursor:
+                for card_data in flashcards_data.get("flashcards", []):
+                    # Create unique ID if not provided
+                    card_id = card_data.get("id", str(uuid.uuid4()))
+                    
+                    cursor.execute("""
+                        INSERT INTO flashcards 
+                        (id, category, question, answer, difficulty, tags, status, created_at, 
+                         success_rate, source_type, news_date, source_url, context)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            question = EXCLUDED.question,
+                            answer = EXCLUDED.answer,
+                            tags = EXCLUDED.tags,
+                            context = EXCLUDED.context
+                        RETURNING id
+                    """, (
+                        card_id,
+                        card_data.get("category", request.topic or "General"), 
+                        card_data["question"], 
+                        card_data["answer"],
+                        request.difficulty.value, 
+                        json.dumps(card_data.get("tags", [])), 
+                        FlashcardStatus.NEW.value,
+                        datetime.now(), 
+                        0.0,
+                        request.source_type.value,
+                        datetime.now() if request.source_type == SourceType.RECENT_NEWS else None,
+                        card_data.get("source_url"),
+                        card_data.get("context")
+                    ))
+                    
+                    result_row = cursor.fetchone()
+                    if result_row:  # Card was inserted or updated
+                        flashcard = Flashcard(
+                            id=card_id,
+                            category=card_data.get("category", request.topic or "General"),
+                            question=card_data["question"],
+                            answer=card_data["answer"],
+                            difficulty=request.difficulty,
+                            tags=card_data.get("tags", []),
+                            status=FlashcardStatus.NEW,
+                            source_type=request.source_type,
+                            context=card_data.get("context")
+                        )
+                        saved_cards.append(flashcard)
+                
+                store.pg_conn.commit()
+        finally:
+            store.close()
+        
+        return FlashcardResponse(
+            success=True,
+            flashcards=saved_cards,
+            count=len(saved_cards),
+            message=f"Generated and saved {len(saved_cards)} flashcards for topic: {request.topic}",
+            topic=request.topic,
+            source_type=request.source_type
+        )
+        
+    except Exception as e:
+        logger.error(f"Flashcard generation error: {e}")
+        return FlashcardResponse(
+            success=False,
+            error=f"Generation failed: {str(e)}"
+        )
 @app.post("/flashcards/generate", response_model=FlashcardResponse)
 async def generate_flashcards(request: FlashcardRequest) -> FlashcardResponse:
     """
@@ -496,7 +694,6 @@ async def generate_flashcards(request: FlashcardRequest) -> FlashcardResponse:
             success=False,
             error=f"Generation failed: {str(e)}"
         )
-
 @app.get("/flashcards", response_model=FlashcardResponse)
 async def get_flashcards(
     category: Optional[str] = None,
