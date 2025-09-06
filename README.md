@@ -16,11 +16,10 @@ https://drive.google.com/file/d/1NY46p2MO2ReZBgco64u9mAvJsqJCvxi1/view?usp=shari
 - **Tailwind CSS** - Utility-first CSS framework
 - **Vite** - Fast build tool and dev server
 - **Pinia** - State management
-- **Chart.js** - Data visualization
 
 ### Backend
 - **FastAPI** - Modern Python web framework
-- **Python 3.12** - Programming language
+- **Python 3.12** - Language
 - **LangChain** - LLM application framework
 - **OpenAI/OpenRouter** - Large language models
 - **Pinecone** - Vector database for embeddings
