@@ -1,1039 +1,1094 @@
 <template>
-  <div class="min-h-screen bg-dark-background">
+  <div class="news-flashcard-app">
     <!-- Header -->
-    <div class="bg-dark-card border-b border-dark-border">
-      <div class="max-w-7xl mx-auto px-6 py-8">
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-3xl font-bold text-text-primary mb-2">Flashcards</h1>
-            <p class="text-text-secondary">
-              AI-generated flashcards from your news analysis
-            </p>
-          </div>
-          <div class="flex items-center space-x-4">
-            <button
-              @click="generateNewFlashcards"
-              :disabled="isGenerating"
-              class="btn-neuron"
-            >
-              <SparklesIcon v-if="!isGenerating" class="w-4 h-4 mr-2" />
-              <SynapseLoader v-else class="w-4 h-4 mr-2" />
-              {{ isGenerating ? 'Generating...' : 'Generate New' }}
-            </button>
-            <button
-              @click="exportFlashcards"
-              :disabled="!hasFlashcards"
-              class="btn-secondary"
-            >
-              <DownloadIcon class="w-4 h-4 mr-2" />
-              Export
-            </button>
-          </div>
+    <div class="header">
+      <h1>📰 NewsNeuron Flashcards</h1>
+      <p>Stay informed with AI-powered news learning</p>
+    </div>
+
+    <!-- News Topics Selection -->
+    <div class="news-topics">
+      <h3>Select News Topic</h3>
+      <div class="topic-grid">
+        <button 
+          v-for="topic in newsTopics" 
+          :key="topic"
+          @click="selectedTopic = topic"
+          :class="['topic-btn', { active: selectedTopic === topic }]"
+        >
+          {{ getTopicEmoji(topic) }} {{ topic }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats Dashboard -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">📚</div>
+        <div class="stat-info">
+          <h3>{{ stats.total }}</h3>
+          <p>Total Cards</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+          <h3>{{ stats.known }}</h3>
+          <p>Mastered</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-info">
+          <h3>{{ stats.learning }}</h3>
+          <p>Learning</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⏰</div>
+        <div class="stat-info">
+          <h3>{{ stats.dueToday }}</h3>
+          <p>Due Today</p>
         </div>
       </div>
     </div>
 
-    <div class="max-w-7xl mx-auto px-6 py-8">
-      <!-- Control Panel -->
-      <div class="bg-dark-card border border-dark-border rounded-2xl p-6 mb-8">
-        <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center space-x-6">
-            <!-- Search -->
-            <div class="relative">
-              <SearchIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-              <input
-                v-model="searchQuery"
-                type="text"
-                placeholder="Search flashcards..."
-                class="input-neuron pl-10 w-64"
-              />
-            </div>
+    <!-- Controls -->
+    <div class="controls">
+      <select v-model="selectedCategory" @change="filterCards" class="category-select">
+        <option value="all">All Categories</option>
+        <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+      </select>
+      
+      <select v-model="sourceType" class="source-select">
+        <option value="recent_news">Recent News</option>
+        <option value="knowledge_base">Stored Articles</option>
+        <option value="entities">Knowledge Graph</option>
+      </select>
+      
+      <button @click="shuffleCards" class="btn btn-secondary">
+        🔀 Shuffle
+      </button>
+      <button @click="generateNewsCards" class="btn btn-primary" :disabled="loading">
+        {{ loading ? '⏳ Generating...' : '📰 Generate News Cards' }}
+      </button>
+      <button @click="startStudySession" class="btn btn-success">
+        🧠 Start Study Session
+      </button>
+    </div>
 
-            <!-- Category Filter -->
-            <select v-model="selectedCategory" class="input-neuron w-48">
-              <option value="all">All Categories</option>
-              <option v-for="category in categories" :key="category" :value="category">
-                {{ category }}
-              </option>
-            </select>
-
-            <!-- Difficulty Filter -->
-            <select v-model="selectedDifficulty" class="input-neuron w-40">
-              <option value="all">All Levels</option>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-          </div>
-
-          <div class="flex items-center space-x-4">
-            <!-- View Mode Toggle -->
-            <div class="flex bg-dark-background border border-dark-border rounded-lg p-1">
-              <button
-                v-for="mode in viewModes"
-                :key="mode.id"
-                @click="currentView = mode.id"
-                :class="[
-                  'px-3 py-2 rounded text-sm font-medium transition-all',
-                  currentView === mode.id
-                    ? 'bg-neuron-glow text-white'
-                    : 'text-text-secondary hover:text-text-primary'
-                ]"
-              >
-                <component :is="mode.icon" class="w-4 h-4 mr-1 inline" />
-                {{ mode.label }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Study Mode Controls -->
-        <div v-if="currentView === 'study'" class="flex items-center justify-between border-t border-dark-border pt-6">
-          <div class="flex items-center space-x-6">
-            <div class="text-text-secondary">
-              <span class="text-text-primary font-semibold">{{ currentStudyIndex + 1 }}</span>
-              of
-              <span class="text-text-primary font-semibold">{{ filteredFlashcards.length }}</span>
-              cards
-            </div>
-            
-            <div class="flex items-center space-x-3">
-              <span class="text-text-secondary text-sm">Auto-flip:</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input v-model="autoFlip" type="checkbox" class="sr-only peer" />
-                <div class="w-11 h-6 bg-dark-background border border-dark-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neuron-glow"></div>
-              </label>
-            </div>
-
-            <div v-if="autoFlip" class="flex items-center space-x-2">
-              <span class="text-text-secondary text-sm">Timer:</span>
-              <select v-model="autoFlipDelay" class="input-neuron w-20 text-sm">
-                <option value="3">3s</option>
-                <option value="5">5s</option>
-                <option value="8">8s</option>
-                <option value="10">10s</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="flex items-center space-x-3">
-            <button
-              @click="previousCard"
-              :disabled="currentStudyIndex === 0"
-              class="btn-secondary"
-            >
-              <ChevronLeftIcon class="w-4 h-4" />
-            </button>
-            <button
-              @click="flipCard"
-              class="btn-neuron px-6"
-            >
-              {{ isCardFlipped ? 'Show Question' : 'Show Answer' }}
-            </button>
-            <button
-              @click="nextCard"
-              :disabled="currentStudyIndex >= filteredFlashcards.length - 1"
-              class="btn-secondary"
-            >
-              <ChevronRightIcon class="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Content -->
-      <div class="grid grid-cols-1 xl:grid-cols-4 gap-8">
-        <!-- Flashcards Content -->
-        <div :class="currentView === 'study' ? 'xl:col-span-4' : 'xl:col-span-3'">
-          <!-- Study Mode -->
-          <div v-if="currentView === 'study'" class="bg-dark-card border border-dark-border rounded-2xl p-8">
-            <div v-if="filteredFlashcards.length > 0" class="text-center">
-              <div class="perspective-1000 mb-8">
-                <div
-                  :class="[
-                    'flashcard relative w-full max-w-2xl mx-auto h-96 transition-transform duration-700 preserve-3d cursor-pointer',
-                    { 'rotate-y-180': isCardFlipped }
-                  ]"
-                  @click="flipCard"
-                >
-                  <!-- Front (Question) -->
-                  <div class="flashcard-face flashcard-front absolute inset-0 backface-hidden bg-gradient-to-br from-neuron-glow/10 to-blue-500/10 border-2 border-neuron-glow/30 rounded-2xl p-8">
-                    <div class="h-full flex flex-col">
-                      <div class="flex justify-between items-start mb-6">
-                        <div class="flex items-center space-x-3">
-                          <div
-                            :class="[
-                              'px-3 py-1 rounded-lg text-xs font-medium',
-                              getDifficultyClass(currentFlashcard.difficulty)
-                            ]"
-                          >
-                            {{ currentFlashcard.difficulty }}
-                          </div>
-                          <span class="px-3 py-1 bg-dark-background/50 rounded-lg text-xs text-text-secondary">
-                            {{ currentFlashcard.category }}
-                          </span>
-                        </div>
-                        <QuestionMarkCircleIcon class="w-8 h-8 text-neuron-glow" />
-                      </div>
-                      
-                      <div class="flex-1 flex items-center justify-center">
-                        <h2 class="text-2xl font-semibold text-text-primary text-center leading-relaxed">
-                          {{ currentFlashcard.question }}
-                        </h2>
-                      </div>
-
-                      <div class="text-center">
-                        <p class="text-text-muted text-sm">Click to reveal answer</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Back (Answer) -->
-                  <div class="flashcard-face flashcard-back absolute inset-0 backface-hidden rotate-y-180 bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-2 border-green-500/30 rounded-2xl p-8">
-                    <div class="h-full flex flex-col">
-                      <div class="flex justify-between items-start mb-6">
-                        <div class="flex items-center space-x-3">
-                          <div
-                            :class="[
-                              'px-3 py-1 rounded-lg text-xs font-medium',
-                              getDifficultyClass(currentFlashcard.difficulty)
-                            ]"
-                          >
-                            {{ currentFlashcard.difficulty }}
-                          </div>
-                          <span class="px-3 py-1 bg-dark-background/50 rounded-lg text-xs text-text-secondary">
-                            {{ currentFlashcard.category }}
-                          </span>
-                        </div>
-                        <CheckCircleIcon class="w-8 h-8 text-green-500" />
-                      </div>
-                      
-                      <div class="flex-1 flex items-center justify-center">
-                        <div class="text-center">
-                          <h2 class="text-xl font-semibold text-text-primary mb-4 leading-relaxed">
-                            {{ currentFlashcard.answer }}
-                          </h2>
-                          <p v-if="currentFlashcard.explanation" class="text-text-secondary text-base">
-                            {{ currentFlashcard.explanation }}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div class="flex justify-center space-x-4">
-                        <button
-                          @click.stop="markCorrect"
-                          class="btn-success"
-                        >
-                          <CheckIcon class="w-4 h-4 mr-2" />
-                          Correct
-                        </button>
-                        <button
-                          @click.stop="markIncorrect"
-                          class="btn-danger"
-                        >
-                          <XMarkIcon class="w-4 h-4 mr-2" />
-                          Incorrect
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Progress Bar -->
-              <div class="w-full bg-dark-background rounded-full h-2 mb-4">
-                <div
-                  class="bg-neuron-glow h-2 rounded-full transition-all duration-300"
-                  :style="{ width: `${studyProgress}%` }"
-                ></div>
-              </div>
-              <p class="text-text-secondary text-sm">
-                Progress: {{ Math.round(studyProgress) }}% complete
-              </p>
-            </div>
-
-            <div v-else class="text-center py-16">
-              <AcademicCapIcon class="w-16 h-16 mx-auto mb-4 text-text-muted" />
-              <h3 class="text-lg font-medium text-text-secondary mb-2">No flashcards to study</h3>
-              <p class="text-text-muted">Generate or create flashcards to start studying.</p>
-            </div>
-          </div>
-
-          <!-- Grid Mode -->
-          <div v-else class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <div class="flex items-center justify-between mb-6">
-              <h2 class="text-xl font-semibold text-text-primary">
-                Flashcard Collection
-                <span v-if="filteredFlashcards.length > 0" class="text-text-secondary text-base font-normal ml-2">
-                  ({{ filteredFlashcards.length }} cards)
-                </span>
-              </h2>
-              
-              <button
-                @click="showCreateModal = true"
-                class="btn-neuron"
-              >
-                <PlusIcon class="w-4 h-4 mr-2" />
-                Create Card
-              </button>
-            </div>
-
-            <!-- Flashcards Grid -->
-            <div v-if="filteredFlashcards.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div
-                v-for="flashcard in paginatedFlashcards"
-                :key="flashcard.id"
-                class="group relative bg-dark-background border border-dark-border rounded-xl p-6 hover:border-neuron-glow/50 transition-all cursor-pointer"
-                @click="viewFlashcard(flashcard)"
-              >
-                <!-- Category & Difficulty -->
-                <div class="flex justify-between items-start mb-4">
-                  <span class="px-2 py-1 bg-dark-card rounded-lg text-xs text-text-secondary">
-                    {{ flashcard.category }}
-                  </span>
-                  <div class="flex items-center space-x-2">
-                    <div
-                      :class="[
-                        'px-2 py-1 rounded text-xs font-medium',
-                        getDifficultyClass(flashcard.difficulty)
-                      ]"
-                    >
-                      {{ flashcard.difficulty }}
-                    </div>
-                    <div class="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        @click.stop="editFlashcard(flashcard)"
-                        class="p-1 text-text-muted hover:text-neuron-glow transition-colors"
-                      >
-                        <PencilIcon class="w-4 h-4" />
-                      </button>
-                      <button
-                        @click.stop="deleteFlashcard(flashcard.id)"
-                        class="p-1 text-text-muted hover:text-red-400 transition-colors"
-                      >
-                        <TrashIcon class="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Question -->
-                <h3 class="text-text-primary font-medium mb-3 line-clamp-3 group-hover:text-neuron-glow transition-colors">
-                  {{ flashcard.question }}
-                </h3>
-
-                <!-- Stats -->
-                <div class="flex items-center justify-between text-sm text-text-muted">
-                  <div class="flex items-center space-x-3">
-                    <span class="flex items-center">
-                      <CheckIcon class="w-3 h-3 mr-1 text-green-500" />
-                      {{ flashcard.correctCount || 0 }}
-                    </span>
-                    <span class="flex items-center">
-                      <XMarkIcon class="w-3 h-3 mr-1 text-red-500" />
-                      {{ flashcard.incorrectCount || 0 }}
-                    </span>
-                  </div>
-                  <span>{{ formatDate(flashcard.createdAt) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Empty State -->
-            <div v-else class="text-center py-16">
-              <AcademicCapIcon class="w-16 h-16 mx-auto mb-4 text-text-muted" />
-              <h3 class="text-lg font-medium text-text-secondary mb-2">No flashcards found</h3>
-              <p class="text-text-muted mb-6">Create your first flashcard or generate them from articles.</p>
-              <button
-                @click="generateNewFlashcards"
-                class="btn-neuron"
-              >
-                <SparklesIcon class="w-4 h-4 mr-2" />
-                Generate Flashcards
-              </button>
-            </div>
-
-            <!-- Pagination -->
-            <div v-if="totalPages > 1" class="flex justify-center mt-8">
-              <div class="flex items-center space-x-2">
-                <button
-                  @click="currentPage = Math.max(1, currentPage - 1)"
-                  :disabled="currentPage === 1"
-                  class="btn-secondary"
-                >
-                  <ChevronLeftIcon class="w-4 h-4" />
-                </button>
-                
-                <span class="px-4 py-2 text-text-secondary">
-                  Page {{ currentPage }} of {{ totalPages }}
-                </span>
-                
-                <button
-                  @click="currentPage = Math.min(totalPages, currentPage + 1)"
-                  :disabled="currentPage === totalPages"
-                  class="btn-secondary"
-                >
-                  <ChevronRightIcon class="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sidebar (only in grid mode) -->
-        <div v-if="currentView === 'grid'" class="space-y-6">
-          <!-- Study Statistics -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Study Stats</h3>
-            <div class="space-y-4">
-              <div class="flex justify-between items-center">
-                <span class="text-text-secondary">Total Cards</span>
-                <span class="text-text-primary font-semibold">{{ flashcards.length }}</span>
-              </div>
-              <div class="flex justify-between items-center">
-                <span class="text-text-secondary">Studied Today</span>
-                <span class="text-text-primary font-semibold">{{ studiedToday }}</span>
-              </div>
-              <div class="flex justify-between items-center">
-                <span class="text-text-secondary">Accuracy Rate</span>
-                <span class="text-text-primary font-semibold">{{ accuracyRate }}%</span>
-              </div>
-              <div class="flex justify-between items-center">
-                <span class="text-text-secondary">Mastery Level</span>
-                <span class="text-text-primary font-semibold">{{ masteryLevel }}%</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Categories -->
-          <div class="bg-dark-card border border-dark-border rounded-2xl p-6">
-            <h3 class="text-lg font-semibold text-text-primary mb-4">Categories</h3>
-            <div class="space-y-2">
-              <div
-                v-for="category in categoryStats"
-                :key="category.name"
-                class="flex justify-between items-center p-2 rounded-lg hover:bg-dark-background/50 transition-colors cursor-pointer"
-                @click="selectedCategory = category.name"
-              >
-                <span class="text-text-secondary">{{ category.name }}</span>
-                <span class="text-text-muted text-sm">{{ category.count }}</span>
-              </div>
-            </div>
-          </div>
+    <!-- Study Session Info -->
+    <div v-if="studyMode" class="study-session">
+      <div class="session-header">
+        <h3>📖 Study Session Active</h3>
+        <div class="session-stats">
+          <span class="correct">✅ {{ sessionStats.correct }}</span>
+          <span class="incorrect">❌ {{ sessionStats.incorrect }}</span>
+          <span class="total">Total: {{ sessionStats.total }}</span>
         </div>
       </div>
     </div>
 
-    <!-- Create/Edit Modal -->
-    <div v-if="showCreateModal || editingFlashcard" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="bg-dark-card border border-dark-border rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div class="p-6 border-b border-dark-border">
-          <h2 class="text-xl font-semibold text-text-primary">
-            {{ editingFlashcard ? 'Edit Flashcard' : 'Create New Flashcard' }}
-          </h2>
-        </div>
-        
-        <div class="p-6 space-y-6">
-          <div>
-            <label class="block text-sm font-medium text-text-primary mb-3">Question</label>
-            <textarea
-              v-model="flashcardForm.question"
-              placeholder="Enter your question..."
-              class="input-neuron h-24 resize-none"
-            ></textarea>
-          </div>
+    <!-- Flashcard Container -->
+    <div class="flashcard-container" v-if="filteredCards.length > 0">
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: progressPercentage + '%' }"></div>
+      </div>
+      
+      <div class="card-counter">
+        {{ currentIndex + 1 }} / {{ filteredCards.length }}
+      </div>
 
-          <div>
-            <label class="block text-sm font-medium text-text-primary mb-3">Answer</label>
-            <textarea
-              v-model="flashcardForm.answer"
-              placeholder="Enter the answer..."
-              class="input-neuron h-24 resize-none"
-            ></textarea>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-text-primary mb-3">Explanation (Optional)</label>
-            <textarea
-              v-model="flashcardForm.explanation"
-              placeholder="Add additional explanation..."
-              class="input-neuron h-20 resize-none"
-            ></textarea>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-text-primary mb-3">Category</label>
-              <input
-                v-model="flashcardForm.category"
-                type="text"
-                placeholder="e.g., Science, History"
-                class="input-neuron"
-              />
+      <div class="flashcard" :class="{ 'flipped': isFlipped }" @click="flipCard">
+        <div class="card-face card-front">
+          <div class="card-header">
+            <span class="category-badge">{{ currentCard.category }}</span>
+            <div class="card-meta">
+              <span class="difficulty-badge" :class="currentCard.difficulty">
+                {{ currentCard.difficulty }}
+              </span>
+              <span v-if="currentCard.newsDate" class="news-date">
+                📅 {{ formatNewsDate(currentCard.newsDate) }}
+              </span>
             </div>
-
-            <div>
-              <label class="block text-sm font-medium text-text-primary mb-3">Difficulty</label>
-              <select v-model="flashcardForm.difficulty" class="input-neuron">
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
+          </div>
+          <div class="card-content">
+            <h3>{{ currentCard.questionType || 'News Question' }}</h3>
+            <p class="question-text">{{ currentCard.question }}</p>
+            <div v-if="currentCard.context" class="context">
+              <small><strong>Context:</strong> {{ currentCard.context }}</small>
             </div>
+          </div>
+          <div class="card-footer">
+            <small>Click to reveal answer</small>
           </div>
         </div>
 
-        <div class="p-6 border-t border-dark-border flex justify-end space-x-4">
-          <button
-            @click="cancelEdit"
-            class="btn-secondary"
-          >
-            Cancel
-          </button>
-          <button
-            @click="saveFlashcard"
-            :disabled="!flashcardForm.question.trim() || !flashcardForm.answer.trim()"
-            class="btn-neuron"
-          >
-            {{ editingFlashcard ? 'Update' : 'Create' }}
+        <div class="card-face card-back">
+          <div class="card-header">
+            <span class="category-badge">{{ currentCard.category }}</span>
+            <div class="tags">
+              <span v-for="tag in currentCard.tags" :key="tag" class="tag">{{ tag }}</span>
+            </div>
+          </div>
+          <div class="card-content">
+            <h3>Answer</h3>
+            <div class="answer-content" v-html="formatAnswer(currentCard.answer)"></div>
+            <div v-if="currentCard.source" class="source-info">
+              <small><strong>Source:</strong> {{ currentCard.source }}</small>
+            </div>
+            <div v-if="currentCard.readMore" class="read-more">
+              <a :href="currentCard.readMore" target="_blank" rel="noopener noreferrer">
+                📖 Read full article
+              </a>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button @click.stop="markCard('known')" class="btn btn-success">
+              ✅ Got it!
+            </button>
+            <button @click.stop="markCard('learning')" class="btn btn-warning">
+              📚 Still learning
+            </button>
+            <button @click.stop="markCard('difficult')" class="btn btn-danger">
+              😵 Too difficult
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="navigation">
+        <button @click="previousCard" :disabled="currentIndex === 0" class="btn btn-nav">
+          ← Previous
+        </button>
+        <button @click="nextCard" :disabled="currentIndex === filteredCards.length - 1" class="btn btn-nav">
+          Next →
+        </button>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else class="empty-state">
+      <div class="empty-icon">📰</div>
+      <h3>No news flashcards available</h3>
+      <p>Generate flashcards from recent news about {{ selectedTopic }}</p>
+      <button @click="generateNewsCards" class="btn btn-primary" :disabled="loading">
+        📰 Generate Cards for {{ selectedTopic }}
+      </button>
+    </div>
+
+    <!-- Recent News Preview -->
+    <div v-if="recentNews.length > 0" class="recent-news">
+      <h3>Recent News Headlines</h3>
+      <div class="news-grid">
+        <div v-for="article in recentNews" :key="article.id" class="news-item">
+          <div class="news-content">
+            <h4>{{ article.title }}</h4>
+            <p>{{ article.summary }}</p>
+            <div class="news-meta">
+              <span class="news-source">{{ article.source }}</span>
+              <span class="news-date">{{ formatNewsDate(article.publishedDate) }}</span>
+            </div>
+          </div>
+          <button @click="generateFromArticle(article)" class="btn btn-small">
+            ➕ Create Cards
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Study Statistics -->
+    <div v-if="showStats" class="study-statistics">
+      <h3>Study Statistics</h3>
+      <div class="stats-detail">
+        <div class="stat-row">
+          <span>Study Streak:</span>
+          <span class="stat-value">{{ detailedStats.studyStreak }} days</span>
+        </div>
+        <div class="stat-row">
+          <span>Average Success Rate:</span>
+          <span class="stat-value">{{ detailedStats.avgSuccessRate }}%</span>
+        </div>
+        <div class="stat-row">
+          <span>Cards Reviewed This Week:</span>
+          <span class="stat-value">{{ detailedStats.weeklyReviews }}</span>
+        </div>
+      </div>
+      <button @click="showStats = false" class="btn btn-secondary">Hide Stats</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div v-if="showSettings" class="settings-panel">
+      <h3>Settings</h3>
+      <div class="setting-item">
+        <label>Cards per session:</label>
+        <input v-model.number="settings.cardsPerSession" type="number" min="5" max="50" />
+      </div>
+      <div class="setting-item">
+        <label>Auto-advance after marking:</label>
+        <input v-model="settings.autoAdvance" type="checkbox" />
+      </div>
+      <div class="setting-item">
+        <label>Default difficulty:</label>
+        <select v-model="settings.defaultDifficulty">
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
+      <button @click="saveSettings" class="btn btn-primary">Save Settings</button>
+      <button @click="showSettings = false" class="btn btn-secondary">Close</button>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button @click="showStats = !showStats" class="btn btn-info">
+        📊 {{ showStats ? 'Hide' : 'Show' }} Statistics
+      </button>
+      <button @click="showSettings = !showSettings" class="btn btn-info">
+        ⚙️ Settings
+      </button>
+      <button @click="exportProgress" class="btn btn-secondary">
+        📤 Export Progress
+      </button>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import {
-  MagnifyingGlassIcon as SearchIcon,
-  SparklesIcon,
-  ArrowDownTrayIcon as DownloadIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  QuestionMarkCircleIcon,
-  CheckCircleIcon,
-  CheckIcon,
-  XMarkIcon,
-  AcademicCapIcon,
-  PlusIcon,
-  PencilIcon,
-  TrashIcon,
-  Squares2X2Icon,
-  BookOpenIcon
-} from '@heroicons/vue/24/outline'
-import SynapseLoader from '@/components/ui/SynapseLoader.vue'
-
+import { computed, onMounted, ref, watch } from 'vue'
 export default {
   name: 'FlashcardsView',
-  components: {
-    SearchIcon,
-    SparklesIcon,
-    DownloadIcon,
-    ChevronLeftIcon,
-    ChevronRightIcon,
-    QuestionMarkCircleIcon,
-    CheckCircleIcon,
-    CheckIcon,
-    XMarkIcon,
-    AcademicCapIcon,
-    PlusIcon,
-    PencilIcon,
-    TrashIcon,
-    Squares2X2Icon,
-    BookOpenIcon,
-    SynapseLoader
-  },
   setup() {
-    const router = useRouter()
-
-    // State
+    // Reactive state
     const flashcards = ref([])
-    const searchQuery = ref('')
+    const currentIndex = ref(0)
+    const isFlipped = ref(false)
     const selectedCategory = ref('all')
-    const selectedDifficulty = ref('all')
-    const currentView = ref('grid')
-    const currentPage = ref(1)
-    const cardsPerPage = 12
-    const isGenerating = ref(false)
-
-    // Study Mode State
-    const currentStudyIndex = ref(0)
-    const isCardFlipped = ref(false)
-    const autoFlip = ref(false)
-    const autoFlipDelay = ref(5)
-    let autoFlipTimer = null
-
-    // Modal State
-    const showCreateModal = ref(false)
-    const editingFlashcard = ref(null)
-    const flashcardForm = ref({
-      question: '',
-      answer: '',
-      explanation: '',
-      category: '',
-      difficulty: 'medium'
+    const selectedTopic = ref('politics')
+    const sourceType = ref('recent_news')
+    const loading = ref(false)
+    const studyMode = ref(false)
+    const showStats = ref(false)
+    const showSettings = ref(false)
+    const stats = ref({ known: 0, learning: 0, total: 0, dueToday: 0 })
+    const sessionStats = ref({ correct: 0, incorrect: 0, total: 0 })
+    const detailedStats = ref({ studyStreak: 0, avgSuccessRate: 0, weeklyReviews: 0 })
+    const recentNews = ref([])
+    const settings = ref({
+      cardsPerSession: 20,
+      autoAdvance: true,
+      defaultDifficulty: 'medium'
     })
 
-    // View Modes
-    const viewModes = [
-      { id: 'grid', label: 'Browse', icon: Squares2X2Icon },
-      { id: 'study', label: 'Study', icon: BookOpenIcon }
+    const newsTopics = ref([
+      'politics', 'technology', 'climate change', 'economy', 
+      'health', 'sports', 'world news', 'business', 'science'
+    ])
+
+    // Sample news flashcards
+    const sampleNewsCards = [
+      {
+        id: '1',
+        category: 'Current Events - Politics',
+        question: 'What recent political development has been making headlines regarding climate policy?',
+        answer: `Recent developments in climate policy include new international agreements and domestic policy changes. Key points include carbon emission targets, renewable energy investments, and international cooperation frameworks.`,
+        difficulty: 'medium',
+        tags: ['politics', 'climate', 'policy'],
+        status: 'new',
+        questionType: 'Current Affairs',
+        newsDate: new Date().toISOString(),
+        source: 'Associated Press',
+        context: 'Global climate summit discussions',
+        readMore: 'https://example.com/climate-policy-news'
+      },
+      {
+        id: '2', 
+        category: 'Technology News',
+        question: 'What major AI development has been announced recently?',
+        answer: `Recent AI developments include advances in large language models, new applications in healthcare, and regulatory frameworks being proposed. Companies are focusing on AI safety and ethical deployment.`,
+        difficulty: 'medium',
+        tags: ['technology', 'ai', 'innovation'],
+        status: 'new',
+        questionType: 'Tech Update',
+        newsDate: new Date().toISOString(),
+        source: 'TechCrunch',
+        context: 'AI industry developments',
+        readMore: 'https://example.com/ai-development-news'
+      },
+      {
+        id: '3',
+        category: 'Economic News',
+        question: 'What are the current trends in global markets?',
+        answer: `Current market trends show mixed signals with inflation concerns, central bank policies affecting interest rates, and sector-specific performance variations. Emerging markets are showing resilience while developed markets face challenges.`,
+        difficulty: 'hard',
+        tags: ['economy', 'markets', 'finance'],
+        status: 'new',
+        questionType: 'Market Analysis',
+        newsDate: new Date().toISOString(),
+        source: 'Financial Times',
+        context: 'Global economic overview',
+        readMore: 'https://example.com/market-trends-news'
+      },
+      {
+        id: '4',
+        category: 'Health News',
+        question: 'What recent health breakthrough has been reported in medical research?',
+        answer: `Recent medical breakthroughs include new treatments for chronic diseases, advances in personalized medicine, and innovative diagnostic technologies. Research focuses on precision therapy and preventive care approaches.`,
+        difficulty: 'medium',
+        tags: ['health', 'medical', 'research'],
+        status: 'new',
+        questionType: 'Health Update',
+        newsDate: new Date(Date.now() - 24*60*60*1000).toISOString(),
+        source: 'Medical News Today',
+        context: 'Latest medical research findings'
+      },
+      {
+        id: '5',
+        category: 'Climate News',
+        question: 'What environmental milestone or concern has been highlighted recently?',
+        answer: `Recent environmental news covers climate change impacts, renewable energy milestones, biodiversity conservation efforts, and sustainable development initiatives. Focus areas include carbon reduction strategies and green technology adoption.`,
+        difficulty: 'medium',
+        tags: ['climate', 'environment', 'sustainability'],
+        status: 'new',
+        questionType: 'Environmental Update',
+        newsDate: new Date(Date.now() - 48*60*60*1000).toISOString(),
+        source: 'Environmental News Network',
+        context: 'Global environmental developments'
+      }
     ]
 
-    // Generate sample flashcards
-    const generateSampleFlashcards = () => {
-      return [
-        {
-          id: 1,
-          question: 'What is the primary cause of the recent surge in renewable energy investments?',
-          answer: 'Government subsidies and decreasing technology costs',
-          explanation: 'Multiple factors including policy support, technological advances, and environmental concerns have driven this trend.',
-          category: 'Technology',
-          difficulty: 'medium',
-          correctCount: 8,
-          incorrectCount: 2,
-          createdAt: '2024-01-15T10:30:00Z'
-        },
-        {
-          id: 2,
-          question: 'Which cryptocurrency regulatory framework was recently approved by the EU?',
-          answer: 'Markets in Crypto-Assets (MiCA) regulation',
-          explanation: 'This comprehensive framework aims to provide legal clarity for crypto assets across European Union member states.',
-          category: 'Finance',
-          difficulty: 'hard',
-          correctCount: 5,
-          incorrectCount: 7,
-          createdAt: '2024-01-14T15:45:00Z'
-        },
-        {
-          id: 3,
-          question: 'What was the main outcome of the recent climate summit?',
-          answer: 'Agreement on fossil fuel transition timeline',
-          explanation: 'Countries committed to specific targets for reducing fossil fuel dependency by 2030.',
-          category: 'Environment',
-          difficulty: 'easy',
-          correctCount: 12,
-          incorrectCount: 1,
-          createdAt: '2024-01-13T09:15:00Z'
-        },
-        {
-          id: 4,
-          question: 'How has AI technology impacted healthcare diagnosis accuracy?',
-          answer: 'Improved accuracy by 25-40% in most specialties',
-          explanation: 'Machine learning algorithms have shown significant improvements in medical imaging and diagnostic processes.',
-          category: 'Healthcare',
-          difficulty: 'medium',
-          correctCount: 9,
-          incorrectCount: 3,
-          createdAt: '2024-01-12T14:20:00Z'
-        },
-        {
-          id: 5,
-          question: 'What is the significance of the recent space mission to Europa?',
-          answer: 'First mission to search for signs of life on Jupiter\'s moon',
-          explanation: 'The mission aims to analyze the subsurface ocean beneath Europa\'s ice shell for potential biosignatures.',
-          category: 'Science',
-          difficulty: 'hard',
-          correctCount: 4,
-          incorrectCount: 8,
-          createdAt: '2024-01-11T11:00:00Z'
-        },
-        {
-          id: 6,
-          question: 'Which company announced the largest acquisition in tech history?',
-          answer: 'Microsoft\'s acquisition of Activision Blizzard',
-          explanation: 'The $68.7 billion deal was completed after regulatory approval, marking the largest gaming industry acquisition.',
-          category: 'Business',
-          difficulty: 'easy',
-          correctCount: 15,
-          incorrectCount: 2,
-          createdAt: '2024-01-10T16:30:00Z'
-        }
-      ]
-    }
-
-    // Computed Properties
-    const hasFlashcards = computed(() => flashcards.value.length > 0)
+    // Computed properties
+    const filteredCards = computed(() => {
+      if (selectedCategory.value === 'all') {
+        return flashcards.value
+      }
+      return flashcards.value.filter(card => card.category === selectedCategory.value)
+    })
 
     const categories = computed(() => {
       const cats = [...new Set(flashcards.value.map(card => card.category))]
       return cats.sort()
     })
 
-    const filteredFlashcards = computed(() => {
-      return flashcards.value.filter(card => {
-        const matchesSearch = searchQuery.value === '' || 
-          card.question.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-          card.answer.toLowerCase().includes(searchQuery.value.toLowerCase())
-        
-        const matchesCategory = selectedCategory.value === 'all' || 
-          card.category === selectedCategory.value
-        
-        const matchesDifficulty = selectedDifficulty.value === 'all' || 
-          card.difficulty === selectedDifficulty.value
-
-        return matchesSearch && matchesCategory && matchesDifficulty
-      })
+    const currentCard = computed(() => {
+      return filteredCards.value[currentIndex.value] || {}
     })
 
-    const totalPages = computed(() => Math.ceil(filteredFlashcards.value.length / cardsPerPage))
-
-    const paginatedFlashcards = computed(() => {
-      const start = (currentPage.value - 1) * cardsPerPage
-      const end = start + cardsPerPage
-      return filteredFlashcards.value.slice(start, end)
-    })
-
-    const currentFlashcard = computed(() => {
-      return filteredFlashcards.value[currentStudyIndex.value] || {}
-    })
-
-    const studyProgress = computed(() => {
-      if (filteredFlashcards.value.length === 0) return 0
-      return ((currentStudyIndex.value + 1) / filteredFlashcards.value.length) * 100
-    })
-
-    const studiedToday = computed(() => {
-      // Mock calculation - in real app would track actual study sessions
-      return Math.floor(Math.random() * 20) + 5
-    })
-
-    const accuracyRate = computed(() => {
-      if (!hasFlashcards.value) return 0
-      const totalCorrect = flashcards.value.reduce((sum, card) => sum + (card.correctCount || 0), 0)
-      const totalIncorrect = flashcards.value.reduce((sum, card) => sum + (card.incorrectCount || 0), 0)
-      const total = totalCorrect + totalIncorrect
-      return total > 0 ? Math.round((totalCorrect / total) * 100) : 0
-    })
-
-    const masteryLevel = computed(() => {
-      if (!hasFlashcards.value) return 0
-      const masteredCards = flashcards.value.filter(card => 
-        (card.correctCount || 0) >= 3 && (card.correctCount || 0) > (card.incorrectCount || 0) * 2
-      ).length
-      return Math.round((masteredCards / flashcards.value.length) * 100)
-    })
-
-    const categoryStats = computed(() => {
-      const stats = {}
-      flashcards.value.forEach(card => {
-        stats[card.category] = (stats[card.category] || 0) + 1
-      })
-      return Object.entries(stats)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
+    const progressPercentage = computed(() => {
+      if (filteredCards.value.length === 0) return 0
+      return ((currentIndex.value + 1) / filteredCards.value.length) * 100
     })
 
     // Methods
-    const generateNewFlashcards = async () => {
-      isGenerating.value = true
-      
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        
-        const newFlashcards = [
-          {
-            id: Date.now(),
-            question: 'What is the latest development in quantum computing breakthrough?',
-            answer: 'IBM achieved quantum advantage in optimization problems',
-            explanation: 'Recent advances show quantum computers can solve certain optimization problems faster than classical computers.',
-            category: 'Technology',
-            difficulty: 'hard',
-            correctCount: 0,
-            incorrectCount: 0,
-            createdAt: new Date().toISOString()
-          },
-          {
-            id: Date.now() + 1,
-            question: 'Which country announced the world\'s largest offshore wind farm project?',
-            answer: 'United Kingdom',
-            explanation: 'The UK announced a massive offshore wind project aimed at achieving net-zero carbon emissions by 2050.',
-            category: 'Environment',
-            difficulty: 'medium',
-            correctCount: 0,
-            incorrectCount: 0,
-            createdAt: new Date().toISOString()
-          }
-        ]
-        
-        flashcards.value.push(...newFlashcards)
-      } finally {
-        isGenerating.value = false
+    const getTopicEmoji = (topic) => {
+      const emojiMap = {
+        'politics': '🏛️',
+        'technology': '💻', 
+        'climate change': '🌍',
+        'economy': '📈',
+        'health': '🏥',
+        'sports': '⚽',
+        'world news': '🌐',
+        'business': '💼',
+        'science': '🔬'
       }
+      return emojiMap[topic] || '📰'
     }
 
-    const exportFlashcards = () => {
-      const data = flashcards.value.map(card => ({
-        question: card.question,
-        answer: card.answer,
-        explanation: card.explanation,
-        category: card.category,
-        difficulty: card.difficulty
-      }))
-      
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `flashcards-${Date.now()}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-    }
-
-    const flipCard = () => {
-      isCardFlipped.value = !isCardFlipped.value
-      
-      if (autoFlip.value && !isCardFlipped.value) {
-        startAutoFlipTimer()
-      }
-    }
-
-    const startAutoFlipTimer = () => {
-      clearTimeout(autoFlipTimer)
-      autoFlipTimer = setTimeout(() => {
-        if (!isCardFlipped.value) {
-          flipCard()
-        }
-      }, autoFlipDelay.value * 1000)
-    }
-
-    const previousCard = () => {
-      if (currentStudyIndex.value > 0) {
-        currentStudyIndex.value--
-        isCardFlipped.value = false
-        if (autoFlip.value) startAutoFlipTimer()
-      }
-    }
-
-    const nextCard = () => {
-      if (currentStudyIndex.value < filteredFlashcards.value.length - 1) {
-        currentStudyIndex.value++
-        isCardFlipped.value = false
-        if (autoFlip.value) startAutoFlipTimer()
-      }
-    }
-
-    const markCorrect = () => {
-      const card = currentFlashcard.value
-      if (card.id) {
-        const index = flashcards.value.findIndex(f => f.id === card.id)
-        if (index >= 0) {
-          flashcards.value[index].correctCount = (flashcards.value[index].correctCount || 0) + 1
-        }
-        nextCard()
-      }
-    }
-
-    const markIncorrect = () => {
-      const card = currentFlashcard.value
-      if (card.id) {
-        const index = flashcards.value.findIndex(f => f.id === card.id)
-        if (index >= 0) {
-          flashcards.value[index].incorrectCount = (flashcards.value[index].incorrectCount || 0) + 1
-        }
-        nextCard()
-      }
-    }
-
-    const viewFlashcard = (flashcard) => {
-      const index = filteredFlashcards.value.findIndex(f => f.id === flashcard.id)
-      if (index >= 0) {
-        currentStudyIndex.value = index
-        currentView.value = 'study'
-        isCardFlipped.value = false
-        if (autoFlip.value) startAutoFlipTimer()
-      }
-    }
-
-    const editFlashcard = (flashcard) => {
-      editingFlashcard.value = flashcard
-      flashcardForm.value = { ...flashcard }
-    }
-
-    const deleteFlashcard = (id) => {
-      if (confirm('Are you sure you want to delete this flashcard?')) {
-        const index = flashcards.value.findIndex(f => f.id === id)
-        if (index >= 0) {
-          flashcards.value.splice(index, 1)
-        }
-      }
-    }
-
-    const saveFlashcard = () => {
-      if (!flashcardForm.value.question.trim() || !flashcardForm.value.answer.trim()) return
-
-      if (editingFlashcard.value) {
-        // Update existing
-        const index = flashcards.value.findIndex(f => f.id === editingFlashcard.value.id)
-        if (index >= 0) {
-          flashcards.value[index] = {
-            ...flashcards.value[index],
-            ...flashcardForm.value
-          }
-        }
-      } else {
-        // Create new
-        const newFlashcard = {
-          id: Date.now(),
-          ...flashcardForm.value,
-          correctCount: 0,
-          incorrectCount: 0,
-          createdAt: new Date().toISOString()
-        }
-        flashcards.value.push(newFlashcard)
-      }
-
-      cancelEdit()
-    }
-
-    const cancelEdit = () => {
-      showCreateModal.value = false
-      editingFlashcard.value = null
-      flashcardForm.value = {
-        question: '',
-        answer: '',
-        explanation: '',
-        category: '',
-        difficulty: 'medium'
-      }
-    }
-
-    const formatDate = (dateString) => {
+    const formatNewsDate = (dateString) => {
+      if (!dateString) return ''
       const date = new Date(dateString)
       const now = new Date()
-      const diffMs = now - date
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+      const diffTime = Math.abs(now - date)
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
       
-      if (diffDays === 0) return 'Today'
-      if (diffDays === 1) return 'Yesterday'
+      if (diffDays === 1) return 'Today'
+      if (diffDays === 2) return 'Yesterday'
       if (diffDays < 7) return `${diffDays} days ago`
       return date.toLocaleDateString()
     }
 
-    const getDifficultyClass = (difficulty) => {
-      switch (difficulty) {
-        case 'easy': return 'bg-green-500/20 text-green-400 border border-green-500/30'
-        case 'medium': return 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-        case 'hard': return 'bg-red-500/20 text-red-400 border border-red-500/30'
-        default: return 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+    const flipCard = () => {
+      isFlipped.value = !isFlipped.value
+    }
+
+    const nextCard = () => {
+      if (currentIndex.value < filteredCards.value.length - 1) {
+        currentIndex.value++
+        isFlipped.value = false
       }
     }
 
-    // Watchers
-    watch(autoFlip, (newValue) => {
-      if (newValue && currentView.value === 'study' && !isCardFlipped.value) {
-        startAutoFlipTimer()
-      } else {
-        clearTimeout(autoFlipTimer)
+    const previousCard = () => {
+      if (currentIndex.value > 0) {
+        currentIndex.value--
+        isFlipped.value = false
       }
-    })
+    }
 
-    watch(autoFlipDelay, () => {
-      if (autoFlip.value && currentView.value === 'study' && !isCardFlipped.value) {
-        startAutoFlipTimer()
+    const shuffleCards = () => {
+      const shuffled = [...flashcards.value].sort(() => Math.random() - 0.5)
+      flashcards.value = shuffled
+      currentIndex.value = 0
+      isFlipped.value = false
+    }
+
+    const markCard = (status) => {
+      const card = currentCard.value
+      card.status = status
+      
+      if (studyMode.value) {
+        sessionStats.value.total++
+        if (status === 'known') {
+          sessionStats.value.correct++
+        } else {
+          sessionStats.value.incorrect++
+        }
       }
+      
+      updateStats()
+      recordReview(card.id, status === 'known')
+      
+      // Auto advance to next card if enabled
+      if (settings.value.autoAdvance) {
+        setTimeout(() => {
+          if (currentIndex.value < filteredCards.value.length - 1) {
+            nextCard()
+          } else {
+            if (studyMode.value) {
+              endStudySession()
+            }
+          }
+        }, 500)
+      }
+    }
+
+    const updateStats = () => {
+      const known = flashcards.value.filter(card => card.status === 'known').length
+      const learning = flashcards.value.filter(card => card.status === 'learning').length
+      const dueToday = flashcards.value.filter(card => {
+        if (!card.nextReview) return card.status === 'new'
+        return new Date(card.nextReview) <= new Date()
+      }).length
+      
+      stats.value = {
+        known,
+        learning,
+        total: flashcards.value.length,
+        dueToday
+      }
+    }
+
+    const filterCards = () => {
+      currentIndex.value = 0
+      isFlipped.value = false
+    }
+
+    const formatAnswer = (answer) => {
+      return answer.replace(/\n/g, '<br/>')
+    }
+
+    const startStudySession = () => {
+      studyMode.value = true
+      sessionStats.value = { correct: 0, incorrect: 0, total: 0 }
+      
+      // Filter to cards due for review or new cards
+      const dueCards = flashcards.value.filter(card => {
+        if (card.status === 'new') return true
+        if (!card.nextReview) return true
+        return new Date(card.nextReview) <= new Date()
+      })
+      
+      if (dueCards.length > 0) {
+        flashcards.value = dueCards.slice(0, settings.value.cardsPerSession)
+        currentIndex.value = 0
+        isFlipped.value = false
+      } else {
+        alert('No cards are due for review right now!')
+        studyMode.value = false
+      }
+    }
+
+    const endStudySession = () => {
+      studyMode.value = false
+      const accuracy = sessionStats.value.total > 0 
+        ? Math.round((sessionStats.value.correct / sessionStats.value.total) * 100)
+        : 0
+      
+      alert(`Study session complete!\n✅ Correct: ${sessionStats.value.correct}\n❌ Incorrect: ${sessionStats.value.incorrect}\nAccuracy: ${accuracy}%`)
+      loadAllCards()
+    }
+
+    const loadAllCards = () => {
+      flashcards.value = [...sampleNewsCards]
+      updateStats()
+    }
+
+    const saveSettings = () => {
+      localStorage.setItem('newsFlashcardSettings', JSON.stringify(settings.value))
+      alert('Settings saved!')
+    }
+
+    const loadSettings = () => {
+      const saved = localStorage.getItem('newsFlashcardSettings')
+      if (saved) {
+        settings.value = { ...settings.value, ...JSON.parse(saved) }
+      }
+    }
+
+    const exportProgress = () => {
+      const progressData = {
+        flashcards: flashcards.value,
+        stats: stats.value,
+        exportDate: new Date().toISOString()
+      }
+      
+      const blob = new Blob([JSON.stringify(progressData, null, 2)], {
+        type: 'application/json'
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `news-flashcards-progress-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
+
+    // API integration
+    const generateNewsCards = async () => {
+      loading.value = true
+      try {
+        const response = await fetch('http://localhost:8000/flashcards/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            topic: selectedTopic.value,
+            source_type: sourceType.value,
+            count: 10,
+            difficulty: settings.value.defaultDifficulty
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error('Failed to generate flashcards')
+        }
+        
+        const data = await response.json()
+        
+        if (data.success) {
+          flashcards.value = [...flashcards.value, ...data.flashcards]
+          updateStats()
+          alert(`Generated ${data.flashcards.length} flashcards about ${selectedTopic.value}!`)
+        } else {
+          throw new Error(data.error || 'Generation failed')
+        }
+        
+      } catch (error) {
+        console.error('Failed to generate cards:', error)
+        alert('Failed to generate flashcards. Please try again.')
+      } finally {
+        loading.value = false
+      }
+    }
+
+    const recordReview = async (cardId, correct) => {
+      try {
+        await fetch('http://localhost:8000/flashcards/${cardId}/review', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            correct: correct,
+            difficulty_rating: correct ? 3 : 4
+          })
+        })
+      } catch (error) {
+        console.error('Failed to record review:', error)
+      }
+    }
+
+    const fetchRecentNews = async () => {
+      try {
+        const mockNews = [
+          {
+            id: 'news1',
+            title: 'Climate Summit Reaches New Agreement on Carbon Emissions',
+            summary: 'World leaders agree on ambitious new carbon reduction targets for 2030...',
+            source: 'Reuters',
+            publishedDate: new Date().toISOString()
+          },
+          {
+            id: 'news2', 
+            title: 'Tech Industry Announces Major AI Safety Initiative',
+            summary: 'Leading technology companies collaborate on comprehensive AI safety standards...',
+            source: 'TechCrunch',
+            publishedDate: new Date(Date.now() - 24*60*60*1000).toISOString()
+          },
+          {
+            id: 'news3',
+            title: 'Global Markets Show Mixed Signals Amid Economic Uncertainty',
+            summary: 'Stock markets fluctuate as investors weigh inflation concerns against growth prospects...',
+            source: 'Financial Times',
+            publishedDate: new Date(Date.now() - 48*60*60*1000).toISOString()
+          }
+        ]
+        recentNews.value = mockNews
+      } catch (error) {
+        console.error('Failed to fetch recent news:', error)
+      }
+    }
+
+    const generateFromArticle = async (article) => {
+      loading.value = true
+      try {
+        const response = await fetch('http://localhost:8000/flashcards/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            topic: article.title,
+            source_type: 'specific_article',
+            article_data: article,
+            count: 5,
+            difficulty: settings.value.defaultDifficulty
+          })
+        })
+        
+        const data = await response.json()
+        if (data.success) {
+          flashcards.value = [...flashcards.value, ...data.flashcards]
+          updateStats()
+          alert(`Generated ${data.flashcards.length} cards from the article!`)
+        }
+      } catch (error) {
+        console.error('Failed to generate from article:', error)
+        alert('Failed to generate cards from article.')
+      } finally {
+        loading.value = false
+      }
+    }
+
+    const fetchDetailedStats = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/flashcards/stats')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            detailedStats.value = {
+              studyStreak: data.study_streak_days || 0,
+              avgSuccessRate: Math.round((data.overall_stats?.average_success_rate || 0) * 100),
+              weeklyReviews: data.recent_performance?.reduce((sum, day) => sum + day.cards_reviewed, 0) || 0
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch detailed stats:', error)
+      }
+    }
+
+    // Watch for topic changes
+    watch(selectedTopic, () => {
+      fetchRecentNews()
     })
 
     // Lifecycle
-    onMounted(() => {
-      flashcards.value = generateSampleFlashcards()
-    })
+ onMounted(() => {
+  generateNewsCards()   // fetches flashcards from backend
+  fetchRecentNews()     // pulls headlines from /news/recent
+  fetchDetailedStats()
+  loadSettings()
+})
 
-    onUnmounted(() => {
-      clearTimeout(autoFlipTimer)
-    })
 
     return {
       // State
       flashcards,
-      searchQuery,
+      currentIndex,
+      isFlipped,
       selectedCategory,
-      selectedDifficulty,
-      currentView,
-      currentPage,
-      isGenerating,
-      currentStudyIndex,
-      isCardFlipped,
-      autoFlip,
-      autoFlipDelay,
-      showCreateModal,
-      editingFlashcard,
-      flashcardForm,
-      viewModes,
-
+      selectedTopic,
+      sourceType,
+      loading,
+      studyMode,
+      showStats,
+      showSettings,
+      stats,
+      sessionStats,
+      detailedStats,
+      recentNews,
+      newsTopics,
+      settings,
+      
       // Computed
-      hasFlashcards,
+      filteredCards,
       categories,
-      filteredFlashcards,
-      totalPages,
-      paginatedFlashcards,
-      currentFlashcard,
-      studyProgress,
-      studiedToday,
-      accuracyRate,
-      masteryLevel,
-      categoryStats,
-
+      currentCard,
+      progressPercentage,
+      
       // Methods
-      generateNewFlashcards,
-      exportFlashcards,
+      getTopicEmoji,
+      formatNewsDate,
       flipCard,
-      previousCard,
       nextCard,
-      markCorrect,
-      markIncorrect,
-      viewFlashcard,
-      editFlashcard,
-      deleteFlashcard,
-      saveFlashcard,
-      cancelEdit,
-      formatDate,
-      getDifficultyClass
+      previousCard,
+      shuffleCards,
+      markCard,
+      filterCards,
+      formatAnswer,
+      startStudySession,
+      generateNewsCards,
+      generateFromArticle,
+      saveSettings,
+      exportProgress
     }
   }
 }
 </script>
 
 <style scoped>
-.perspective-1000 {
-  perspective: 1000px;
+.news-flashcard-app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f8fafc;
+  min-height: 100vh;
 }
 
-.preserve-3d {
-  transform-style: preserve-3d;
+.header {
+  text-align: center;
+  margin-bottom: 30px;
 }
 
-.backface-hidden {
-  backface-visibility: hidden;
+.header h1 {
+  color: #1f2937;
+  font-size: 2.5rem;
+  margin-bottom: 8px;
+  font-weight: 700;
 }
 
-.rotate-y-180 {
-  transform: rotateY(180deg);
+.header p {
+  color: #6b7280;
+  font-size: 1.1rem;
 }
 
-.flashcard-face {
-  transform-style: preserve-3d;
+.news-topics {
+  margin-bottom: 30px;
 }
 
-.flashcard-back {
-  transform: rotateY(180deg);
+.news-topics h3 {
+  color: #1f2937;
+  margin-bottom: 15px;
+  text-align: center;
+  font-size: 1.2rem;
 }
 
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.topic-btn {
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.topic-btn:hover {
+  border-color: #3b82f6;
+  background: #f0f9ff;
+}
+
+.topic-btn.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border: 1px solid #e5e7eb;
+}
+
+.stat-icon {
+  font-size: 2rem;
+}
+
+.stat-info h3 {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #1f2937;
+  margin: 0;
+}
+
+.stat-info p {
+  color: #6b7280;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 30px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.category-select {
+  padding: 10px 15px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  font-size: 14px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-secondary {
+  background: white;
+  color: #3b82f6;
+  border: 2px solid #3b82f6;
+}
+
+.btn-secondary:hover {
+  background: #3b82f6;
+  color: white;
 }
 
 .btn-success {
-  @apply px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg hover:bg-green-500/30 transition-colors font-medium;
+  background: #10b981;
+  color: white;
 }
 
-.btn-danger {
-  @apply px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors font-medium;
+.btn-warning {
+  background: #f59e0b;
+  color: white;
+}
+
+.btn-nav {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.flashcard-container {
+  text-align: center;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  margin-bottom: 15px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+.card-counter {
+  color: #6b7280;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.flashcard {
+  width: 100%;
+  height: 400px;
+  perspective: 1000px;
+  margin-bottom: 30px;
+  cursor: pointer;
+}
+
+.card-face {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  backface-visibility: hidden;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  background: white;
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.6s ease;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+}
+
+.flashcard.flipped .card-front {
+  transform: rotateY(180deg);
+}
+
+.flashcard.flipped .card-back {
+  transform: rotateY(0);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.category-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.difficulty-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.difficulty-badge.easy { background: #dcfce7; color: #166534; }
+.difficulty-badge.medium { background: #fef3c7; color: #92400e; }
+.difficulty-badge.hard { background: #fecaca; color: #991b1b; }
+
+.card-content {
+  flex: 1;
+  text-align: left;
+}
+
+.card-content h3 {
+  color: #1f2937;
+  margin-bottom: 15px;
+  font-size: 1.2rem;
+}
+
+.card-content p {
+  color: #374151;
+  line-height: 1.6;
+  font-size: 1rem;
+}
+
+.answer-content {
+  color: #374151;
+  line-height: 1.6;
+}
+
+.answer-content code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.9em;
+}
+
+.card-footer {
+  color: #9ca3af;
+  font-size: 12px;
+  text-align: center;
+}
+
+.card-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.navigation {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+}
+
+.empty-state h3 {
+  color: #1f2937;
+  margin-bottom: 10px;
+}
+
+.empty-state p {
+  color: #6b7280;
+  margin-bottom: 30px;
 }
 </style>
