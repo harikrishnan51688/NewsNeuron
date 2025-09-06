@@ -54,11 +54,13 @@
               class="w-8 h-8 bg-gradient-to-br from-accent-emerald to-accent-cyan rounded-full flex items-center justify-center flex-shrink-0 mt-1">
               <Brain class="w-4 h-4 text-white" />
             </div>
-            <div class="max-w-xs sm:max-w-md lg:max-w-lg">
+            <div class="max-w-xs sm:max-w-md lg:max-w-2xl">
               <div class="bg-neuron-bg-content border border-neuron-border p-4 rounded-2xl rounded-tl-sm shadow-sm">
-                <p class="text-sm leading-relaxed text-neuron-text-primary whitespace-pre-wrap">{{ message.content }}
-                  <span v-if="message.isStreaming" class="inline-block w-2 h-4 bg-accent-emerald animate-pulse ml-1"></span>
-                </p>
+                <!-- Formatted message content -->
+                <div class="formatted-message text-sm leading-relaxed text-neuron-text-primary" 
+                     v-html="formatMessage(message.content)">
+                </div>
+                <span v-if="message.isStreaming" class="inline-block w-2 h-4 bg-accent-emerald animate-pulse ml-1"></span>
 
                 <!-- Processing time (subtle) -->
                 <div v-if="message.processingTime" class="text-xs text-neuron-text-secondary/50 mt-1">
@@ -147,6 +149,83 @@ export default {
     const canSend = computed(() => {
       return userInput.value.trim().length > 0 && !isLoading.value
     })
+
+    // Enhanced message formatting function
+    const formatMessage = (content) => {
+      if (!content) return ''
+      
+      let formatted = content
+      
+      // Convert markdown-style formatting
+      formatted = formatted
+        // Bold text
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-neuron-text-primary">$1</strong>')
+        // Italic text
+        .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+        // Code blocks (triple backticks)
+        .replace(/```([\s\S]*?)```/g, '<pre class="bg-neuron-bg-primary/50 border border-neuron-border rounded-lg p-3 my-2 text-sm font-mono overflow-x-auto"><code>$1</code></pre>')
+        // Inline code
+        .replace(/`([^`]+)`/g, '<code class="bg-neuron-bg-primary/50 px-1.5 py-0.5 rounded text-sm font-mono">$1</code>')
+        // Links
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-accent-cyan hover:text-accent-emerald transition-colors underline">$1</a>')
+        // Citations (antml:cite tags)
+        .replace(/]*>(.*?)<\/antml:cite>/g, '<span class="bg-accent-emerald/10 text-accent-emerald px-1 py-0.5 rounded text-sm border-l-2 border-accent-emerald/30">$1</span>')
+      
+      // Handle lists
+      const lines = formatted.split('\n')
+      const processedLines = []
+      let inList = false
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        
+        // Detect bullet points
+        if (line.match(/^[\s]*[-•*]\s+/)) {
+          if (!inList) {
+            processedLines.push('<ul class="list-disc pl-6 space-y-1 my-2">')
+            inList = true
+          }
+          const content = line.replace(/^[\s]*[-•*]\s+/, '')
+          processedLines.push(`<li class="text-neuron-text-primary">${content}</li>`)
+        }
+        // Detect numbered lists
+        else if (line.match(/^[\s]*\d+\.\s+/)) {
+          if (!inList) {
+            processedLines.push('<ol class="list-decimal pl-6 space-y-1 my-2">')
+            inList = true
+          }
+          const content = line.replace(/^[\s]*\d+\.\s+/, '')
+          processedLines.push(`<li class="text-neuron-text-primary">${content}</li>`)
+        }
+        // Regular line
+        else {
+          if (inList) {
+            processedLines.push('</ul>')
+            inList = false
+          }
+          
+          // Handle headers
+          if (line.startsWith('# ')) {
+            processedLines.push(`<h1 class="text-lg font-semibold text-neuron-text-primary mt-4 mb-2">${line.substring(2)}</h1>`)
+          } else if (line.startsWith('## ')) {
+            processedLines.push(`<h2 class="text-base font-semibold text-neuron-text-primary mt-3 mb-2">${line.substring(3)}</h2>`)
+          } else if (line.startsWith('### ')) {
+            processedLines.push(`<h3 class="text-sm font-semibold text-neuron-text-primary mt-2 mb-1">${line.substring(4)}</h3>`)
+          } else if (line.trim() === '') {
+            processedLines.push('<br>')
+          } else {
+            processedLines.push(`<p class="mb-2">${line}</p>`)
+          }
+        }
+      }
+      
+      // Close any open list
+      if (inList) {
+        processedLines.push('</ul>')
+      }
+      
+      return processedLines.join('')
+    }
 
     const sendMessage = async (content) => {
       if (!content || content.trim().length === 0) return
@@ -430,6 +509,7 @@ export default {
       messageInput,
       quickSuggestions,
       canSend,
+      formatMessage,
       sendMessage,
       sendUserMessage,
       copyMessage,
@@ -503,5 +583,53 @@ textarea {
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+/* Formatted message styles */
+.formatted-message {
+  line-height: 1.6;
+}
+
+.formatted-message h1,
+.formatted-message h2,
+.formatted-message h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.formatted-message p {
+  margin-bottom: 0.75rem;
+}
+
+.formatted-message p:last-child {
+  margin-bottom: 0;
+}
+
+.formatted-message ul,
+.formatted-message ol {
+  margin: 0.5rem 0;
+}
+
+.formatted-message pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.formatted-message code {
+  word-wrap: break-word;
+}
+
+.formatted-message a {
+  word-wrap: break-word;
+}
+
+/* Citation styling */
+.formatted-message .citation {
+  background: rgba(16, 185, 129, 0.1);
+  color: rgb(16, 185, 129);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  border-left: 2px solid rgba(16, 185, 129, 0.3);
 }
 </style>
