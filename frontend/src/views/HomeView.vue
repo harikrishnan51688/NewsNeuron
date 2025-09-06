@@ -59,13 +59,28 @@
         </div>
         
         <!-- Headlines Grid -->
-        <div v-else-if="headlines.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <TopHeadlineCard
-            v-for="headline in displayedHeadlines"
-            :key="headline.id"
-            :headline="headline"
-            class="animate-fade-in"
-          />
+        <div v-else-if="headlines.length > 0" class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <TopHeadlineCard
+              v-for="headline in displayedHeadlines"
+              :key="headline.id"
+              :headline="headline"
+              class="animate-fade-in"
+              @openSummary="openSummaryModal"
+            />
+          </div>
+          
+          <!-- Load More Button -->
+          <div class="flex justify-center">
+            <button
+              @click="loadMoreHeadlines"
+              :disabled="isLoadingMore"
+              class="bg-dark-card hover:bg-dark-border border border-dark-border text-text-primary px-6 py-3 rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2"
+            >
+              <RefreshCwIcon :class="['w-4 h-4', { 'animate-spin': isLoadingMore }]" />
+              <span>{{ isLoadingMore ? 'Loading More...' : 'Load More Headlines' }}</span>
+            </button>
+          </div>
         </div>
         
         <!-- Empty State -->
@@ -80,6 +95,13 @@
       </div>
     </section>
 
+    <!-- Article Summary Modal -->
+    <ArticleSummaryModal
+      :show="showSummaryModal"
+      :article="selectedArticle"
+      @close="closeSummaryModal"
+    />
+
   </div>
 </template>
 
@@ -90,6 +112,7 @@ import { RefreshCwIcon, AlertCircleIcon } from 'lucide-vue-next'
 // Components
 import TopHeadlineCard from '@/components/headlines/TopHeadlineCard.vue'
 import SynapseLoader from '@/components/ui/SynapseLoader.vue'
+import ArticleSummaryModal from '@/components/ui/ArticleSummaryModal.vue'
 
 // API
 import { headlinesAPI } from '@/services/api.js'
@@ -99,9 +122,15 @@ const NewsIcon = RefreshCwIcon
 
 // State
 const isLoading = ref(true)
+const isLoadingMore = ref(false)
 const error = ref('')
 const headlines = ref([])
 const selectedCategory = ref('general')
+const currentLimit = ref(4)
+
+// Modal state
+const showSummaryModal = ref(false)
+const selectedArticle = ref(null)
 
 // Computed - Show all headlines (no limit for this minimalistic approach)
 const displayedHeadlines = computed(() => {
@@ -109,16 +138,21 @@ const displayedHeadlines = computed(() => {
 })
 
 // Methods
-const fetchHeadlines = async () => {
+const fetchHeadlines = async (reset = true) => {
   try {
-    isLoading.value = true
+    if (reset) {
+      isLoading.value = true
+      currentLimit.value = 4
+    } else {
+      isLoadingMore.value = true
+    }
     error.value = ''
     
     const response = await headlinesAPI.getTopHeadlines({
       category: selectedCategory.value,
       lang: 'en',
       country: 'us',
-      max_articles: 8
+      max_articles: currentLimit.value
     })
     
     if (response.data.success) {
@@ -131,8 +165,27 @@ const fetchHeadlines = async () => {
     console.error('Headlines fetch error:', err)
     error.value = err.response?.data?.error || err.message || 'An unexpected error occurred'
   } finally {
-    isLoading.value = false
+    if (reset) {
+      isLoading.value = false
+    } else {
+      isLoadingMore.value = false
+    }
   }
+}
+
+const loadMoreHeadlines = async () => {
+  currentLimit.value += 4
+  await fetchHeadlines(false)
+}
+
+const openSummaryModal = (article) => {
+  selectedArticle.value = article
+  showSummaryModal.value = true
+}
+
+const closeSummaryModal = () => {
+  showSummaryModal.value = false
+  selectedArticle.value = null
 }
 
 // Lifecycle
