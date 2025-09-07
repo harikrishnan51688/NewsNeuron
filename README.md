@@ -1,11 +1,41 @@
-## NewsNeuron
+## NewsNeuron 🧠
+> **AI-Powered News Analysis Platform** - Think like a neural network, understand like a human
+
 NewsNeuron is an advanced AI agent that redefines news analysis by thinking like a neural network to deliver precise, contextual insights. The system moves beyond standard search by combining the semantic power of Retrieval-Augmented Generation (RAG) with the deep relational understanding of a Knowledge Graph. By integrating vector-based search with relationship-driven graph traversal, NewsNeuron processes information like interconnected neurons, understanding not just the content of the news, but the complex relationships between people, organizations, and events.
 
-#### System Architecture Overview
+## Presentation Video
+https://drive.google.com/file/d/1NY46p2MO2ReZBgco64u9mAvJsqJCvxi1/view?usp=sharing
+
+## System Architecture Overview
 <img src="docs/image.png" alt="drawing" width="400"/>
 
+## 🛠️ Tech Stack
 
-## Project Setup Guide
+### Frontend
+- **Vue.js 3** - Progressive JavaScript framework
+- **Tailwind CSS** - Utility-first CSS framework
+- **Vite** - Fast build tool and dev server
+- **Pinia** - State management
+
+### Backend
+- **FastAPI** - Modern Python web framework
+- **Python 3.12** - Language
+- **LangChain** - LLM application framework
+- **OpenAI/OpenRouter** - Large language models
+- **Pinecone** - Vector database for embeddings
+
+### Databases
+- **PostgreSQL** - Primary relational database
+- **Neo4j** - Knowledge graph database
+- **Pinecone** - Vector similarity search
+
+### DevOps
+- **Docker** - Containerization
+- **Docker Compose** - Multi-container orchestration
+- **Nginx** - Web server and reverse proxy
+
+
+## 🏭 Project Setup Guide
 
 This project uses uv for Python dependency management and virtual environment handling.
 
@@ -55,3 +85,15 @@ To run api
 uv run uvicorn api.routes:app --reload
 ```
 
+### To run Frontend
+```bash
+cd frontend
+```
+Install dependencies
+```bash
+npm install
+```
+Run the server
+```bash
+npm run dev
+```
