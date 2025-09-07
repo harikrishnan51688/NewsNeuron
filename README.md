@@ -48,32 +48,6 @@ https://drive.google.com/file/d/1NY46p2MO2ReZBgco64u9mAvJsqJCvxi1/view?usp=shari
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Component Details
-
-#### 🎨 Frontend Layer
-- **Vue.js 3 Application**: Modern reactive frontend with component-based architecture
-- **Views**: Home, Chat, Flashcards, Search, Timeline, About
-- **State Management**: Pinia for centralized state management
-- **Styling**: Tailwind CSS for responsive design
-- **Build Tool**: Vite for fast development and optimized builds
-
-#### 🔌 API Layer
-- **FastAPI Backend**: RESTful API with automatic OpenAPI documentation
-- **Route Handlers**: Modular route organization for different functionalities
-- **Middleware**: CORS, authentication, and error handling
-- **Real-time Communication**: WebSocket support for live updates
-
-#### 🤖 AI Processing Layer
-- **News Agent**: LangChain-based agent for intelligent news processing
-- **Retrieval System**: RAG implementation with semantic search
-- **Knowledge Graph**: Neo4j-based relationship mapping
-- **Embeddings**: Vector representations for semantic understanding
-
-#### 💾 Data Storage Layer
-- **PostgreSQL**: Primary database for metadata, user data, and structured information
-- **Pinecone**: Vector database for semantic search and similarity matching
-- **Neo4j**: Graph database for knowledge relationships and entity connections
-
 ### Data Flow
 1. **News Ingestion**: External news sources → News Agent → Data Processing
 2. **Content Analysis**: Raw news → Embeddings → Vector Storage (Pinecone)
