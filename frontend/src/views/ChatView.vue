@@ -263,7 +263,7 @@ export default {
         await scrollToBottom()
 
         // Call backend with streaming
-        const response = await fetch("http://localhost:8000/chat", {
+        const response = await fetch("http://10.20.4.2:8000/chat", {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",

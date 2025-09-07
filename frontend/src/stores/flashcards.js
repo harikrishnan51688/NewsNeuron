@@ -6,7 +6,7 @@ export const useFlashcardsStore = defineStore('flashcards', () => {
 
   async function generateFlashcards({ topic, sourceType = 'recent_news', difficulty = 'medium', count = 10 }) {
     try {
-      const response = await fetch('http://localhost:8000/flashcards/generate', {
+      const response = await fetch('http://10.20.4.2:8000/flashcards/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
